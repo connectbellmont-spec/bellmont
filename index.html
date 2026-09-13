@@ -216,6 +216,25 @@
   .badge-out { background: #fbe5e5; color: var(--danger); border:1px solid var(--danger); }
   .badge-gold { background: var(--gold-200); color: var(--green-900); border:1px solid var(--gold-500); }
   .badge-cat { background: #eaf0eb; color: var(--green-800); border:1px solid var(--line); }
+  .size-chip { display:inline-flex; align-items:center; gap:3px; padding:3px 9px; border-radius:12px; font-size:11px; font-weight:700; font-family:sans-serif; margin:2px; border:1px solid var(--line); background:white; white-space:nowrap; }
+  .size-chip.out { background:#fbe5e5; color:#a83232; border-color:#e8c5c5; text-decoration:line-through; opacity:.75; }
+  .size-chip.low { background:#fdf1d6; color:#8a5a00; border-color:#e9d39a; }
+  .size-chip.ok  { background:#eef5ef; color:#2f7a4e; border-color:#c7dfcd; }
+  .prod-group-head { background:var(--ivory) !important; }
+  .prod-group-head:hover { background:var(--cream) !important; }
+  .group-row { background:var(--cream); }
+  .group-cell { padding:8px 12px !important; border-bottom:1px solid var(--line-soft) !important; }
+  .grp-thumb { display:flex; align-items:center; gap:10px; }
+  .grp-title { font-family:Georgia,serif; font-size:15px; font-weight:700; color:var(--green-900); letter-spacing:.5px; }
+  .grp-sub { font-size:11px; color:var(--muted); font-family:sans-serif; margin-top:2px; }
+  .grp-price { font-weight:700; font-family:sans-serif; font-size:13px; }
+  .grp-marg { color:var(--success); font-weight:700; font-size:12px; font-family:sans-serif; }
+  .grp-stock { font-size:12px; font-family:sans-serif; font-weight:700; }
+  .grp-stock .num-ok { color:var(--success); }
+  .grp-stock .num-low { color:var(--warn); }
+  .grp-stock .num-out { color:var(--danger); }
+  .grp-actions { white-space:nowrap; display:flex; gap:4px; flex-wrap:wrap; }
+  .chips-wrap { line-height:1.9; margin-top:4px; }
   .badge-info { background: #e3eef7; color: var(--info); border:1px solid var(--info); }
   .badge-danger { background: #fbe5e5; color: var(--danger); border:1px solid var(--danger); }
   .profit-pos { color: var(--success); font-weight: 700; }
@@ -511,8 +530,10 @@
       </div>
       <div class="table-wrap">
         <table><thead><tr>
-          <th>Photo</th><th>SKU</th><th>Brand</th><th>Model</th><th>Category</th><th>Size</th><th>Colour</th>
-          <th>Cost</th><th>Price</th><th>Stock</th><th>Margin</th><th>Actions</th>
+          <th style="width:60px;">Photo</th>
+          <th>Article</th>
+          <th colspan="2">Sizes & Stock</th>
+          <th>Cost</th><th>Price</th><th>Total Stock</th><th>Margin</th><th style="width:240px;">Actions</th>
         </tr></thead><tbody id="invTable"></tbody></table>
       </div>
     </div>
@@ -552,6 +573,7 @@
         <button class="btn btn-outline btn-sm" onclick="addPurchaseItemRow()">+ Add Existing Item</button>
         <button class="btn btn-outline btn-sm" onclick="addPurchaseNewRow()">+ Add New Product</button>
         <button class="btn btn-gold btn-sm" onclick="openPurchaseBulkNewModal()">⚡ Bulk New Product (sizes/colors)</button>
+        <button class="btn btn-info btn-sm" onclick="openPurchaseImportModal()">📥 Import Excel Shipment</button>
       </div>
 
       <div class="section-divider">
@@ -1276,33 +1298,192 @@ function restockProduct(id) {
   alert(`✦ Added ${n} pairs. ${fmt(n*cost)} logged.`);
 }
 
+function _groupKey(p) { return (p.brand||'')+'||'+(p.model||'')+'||'+(p.color||'')+'||'+(p.category||''); }
+
 function renderInventory() {
   const search=(document.getElementById('searchInv')?.value||'').toLowerCase();
   const cat=document.getElementById('filterCat')?.value||'';
   const sf=document.getElementById('filterStock')?.value||'';
   refreshCategoryDropdowns();
-  let rows = db.products.slice();
-  if (cat) rows = rows.filter(p=>p.category===cat);
-  if (sf==='out') rows = rows.filter(p=>p.stock===0);
-  if (sf==='low') rows = rows.filter(p=>p.stock>0 && p.stock<=p.reorder);
-  if (sf==='ok') rows = rows.filter(p=>p.stock>p.reorder);
-  if (search) rows = rows.filter(p=>(p.brand+p.model+p.sku+p.color+p.size+p.category).toLowerCase().includes(search));
-  rows.sort((a,b)=>(a.brand+a.model+String(a.size)).localeCompare(b.brand+b.model+String(b.size)));
+
+  // Filter first
+  let products = db.products.slice();
+  if (cat) products = products.filter(p=>p.category===cat);
+  if (sf==='out') products = products.filter(p=>p.stock===0);
+  if (sf==='low') products = products.filter(p=>p.stock>0 && p.stock<=p.reorder);
+  if (sf==='ok') products = products.filter(p=>p.stock>p.reorder);
+  if (search) products = products.filter(p=>(p.brand+p.model+p.sku+p.color+p.size+p.category).toLowerCase().includes(search));
+
+  // Group by Brand+Model+Color+Category
+  const groups = {};
+  products.forEach(p => {
+    const k = _groupKey(p);
+    if (!groups[k]) groups[k] = { brand:p.brand, model:p.model, color:p.color, category:p.category, image:p.image, items:[] };
+    // Use first non-empty image in group as the hero
+    if (!groups[k].image && p.image) groups[k].image = p.image;
+    groups[k].items.push(p);
+  });
+
+  // Sort each group's sizes naturally
+  Object.values(groups).forEach(g => {
+    g.items.sort((a,b) => {
+      const na = parseFloat(a.size.replace(/[^0-9.]/g,''))||0;
+      const nb = parseFloat(b.size.replace(/[^0-9.]/g,''))||0;
+      if (na !== nb) return na - nb;
+      return (a.size||'').localeCompare(b.size||'');
+    });
+    // group stats
+    g.totalStock = g.items.reduce((s,p)=>s+p.stock,0);
+    g.totalSKUs = g.items.length;
+    g.inStock = g.items.filter(p=>p.stock>0).length;
+    g.outOfStock = g.items.filter(p=>p.stock===0).length;
+    // Find "primary" cost/sell (most common, or first non-zero)
+    const costs = g.items.map(p=>p.cost).filter(c=>c>0);
+    const sells = g.items.map(p=>p.sell).filter(s=>s>0);
+    g.cost = costs[0]||0;
+    g.sell = sells[0]||0;
+    g.margin = g.sell>0 ? ((g.sell-g.cost)/g.sell*100).toFixed(1) : 0;
+    // primary (first non-empty image, or first)
+    g.primary = g.items.find(p=>p.stock>0) || g.items[0];
+  });
+
   const tbody = document.getElementById('invTable');
-  if (!rows.length) { tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="icon">👞</div>The collection is empty.</div></td></tr>`; populateSaleProducts(); return; }
-  tbody.innerHTML = rows.map(p=>{
-    const m = p.sell>0?((p.sell-p.cost)/p.sell*100).toFixed(1):0;
-    const badge = p.stock===0?'<span class="badge badge-out">Out</span>':p.stock<=p.reorder?'<span class="badge badge-low">Low</span>':'<span class="badge badge-ok">In Stock</span>';
-    return `<tr><td>${thumbHTML(p)}</td><td><code>${esc(p.sku)}</code></td><td><strong>${esc(p.brand)}</strong></td><td>${esc(p.model)}</td>
-      <td><span class="badge badge-cat">${esc(p.category)}</span></td><td>${esc(p.size)}</td><td>${esc(p.color)}</td>
-      <td>${fmt(p.cost)}</td><td><strong>${fmt(p.sell)}</strong></td><td>${badge} ${p.stock}</td>
-      <td style="color:var(--success);font-weight:700">${m}%</td>
-      <td style="white-space:nowrap"><button class="btn btn-green btn-xs" onclick="restockProduct('${p.id}')">+Stock</button>
-      <button class="btn btn-outline btn-xs" onclick="openProductModal(false,'${p.id}')">Edit</button>
-      <button class="btn btn-danger btn-xs" onclick="deleteProduct('${p.id}')">Del</button></td></tr>`;
-  }).join('');
+  const groupList = Object.values(groups).sort((a,b)=>(a.brand+a.model).localeCompare(b.brand+b.model));
+
+  if (!groupList.length) { tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="icon">👞</div>The collection is empty.</div></td></tr>`; populateSaleProducts(); return; }
+
+  let html = '';
+  groupList.forEach(g => {
+    const chips = g.items.map(p => {
+      const cls = p.stock===0?'out':(p.stock<=p.reorder?'low':'ok');
+      const label = p.stock===0 ? `${p.size} · OUT` : `${p.size} · ${p.stock}`;
+      return `<span class="size-chip ${cls}" title="SKU: ${esc(p.sku)} — ${fmt(p.cost)} → ${fmt(p.sell)}">${esc(label)}</span>`;
+    }).join('');
+
+    const stockNumCls = g.totalStock===0?'num-out':(g.outOfStock>0||g.items.some(p=>p.stock<=p.reorder && p.stock>0)?'num-low':'num-ok');
+    const stockBadge = g.totalStock===0
+      ? '<span class="badge badge-out">Out</span>'
+      : (g.items.some(p=>p.stock<=p.reorder) ? '<span class="badge badge-low">Low Stock</span>' : '<span class="badge badge-ok">In Stock</span>');
+
+    // Group header row
+    html += `<tr class="prod-group-head">
+      <td>${thumbHTML(g.primary, 48)}</td>
+      <td style="vertical-align:middle;">
+        <div class="grp-title">${esc(g.brand)} <span style="color:var(--muted);font-weight:400;">·</span> ${esc(g.model)}</div>
+        <div class="grp-sub"><span class="badge badge-cat" style="font-size:10px;">${esc(g.category)}</span> · ${esc(g.color)} · ${g.totalSKUs} size${g.totalSKUs>1?'s':''} · SKUs</div>
+      </td>
+      <td colspan="2" class="group-cell" style="vertical-align:middle;">
+        <div class="chips-wrap">${chips}</div>
+      </td>
+      <td style="vertical-align:middle;" class="grp-price">${fmt(g.cost)}</td>
+      <td style="vertical-align:middle;"><strong>${fmt(g.sell)}</strong></td>
+      <td style="vertical-align:middle;">${stockBadge} <span class="grp-stock"><span class="${stockNumCls}">${g.totalStock}</span> pairs total</span></td>
+      <td class="grp-marg" style="vertical-align:middle;">${g.margin}%</td>
+      <td style="vertical-align:middle;" class="grp-actions">
+        <button class="btn btn-green btn-xs" onclick="quickRestockGroup('${g.items.map(p=>p.id).join(',')}')">+Stock</button>
+        <button class="btn btn-gold btn-xs" onclick="expandGroup(this)">▾ Expand</button>
+        <button class="btn btn-outline btn-xs" onclick="openGroupActions('${g.items.map(p=>p.id).join(',')}')">⋯</button>
+      </td>
+    </tr>`;
+    // Collapsible detail rows — one per SKU
+    g.items.forEach(p => {
+      const badge = p.stock===0?'<span class="badge badge-out">Out</span>':p.stock<=p.reorder?'<span class="badge badge-low">Low</span>':'<span class="badge badge-ok">In Stock</span>';
+      const m = p.sell>0?((p.sell-p.cost)/p.sell*100).toFixed(1):0;
+      html += `<tr class="group-row" style="display:none;">
+        <td style="padding-left:60px;">${thumbHTML(p,28)}</td>
+        <td><code style="font-size:11px;">${esc(p.sku)}</code> <span style="color:var(--muted);font-size:11px;">— ${esc(p.color)}</span></td>
+        <td><span class="size-chip ${p.stock===0?'out':p.stock<=p.reorder?'low':'ok'}">${esc(p.size)}</span></td>
+        <td>${badge}</td>
+        <td>${fmt(p.cost)}</td>
+        <td><strong>${fmt(p.sell)}</strong></td>
+        <td>${p.stock} pairs</td>
+        <td style="color:var(--success);font-weight:700;">${m}%</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-green btn-xs" onclick="restockProduct('${p.id}')">+Stock</button>
+          <button class="btn btn-outline btn-xs" onclick="openProductModal(false,'${p.id}')">Edit</button>
+          <button class="btn btn-danger btn-xs" onclick="deleteProduct('${p.id}')">Del</button>
+        </td>
+      </tr>`;
+    });
+  });
+
+  tbody.innerHTML = html;
   populateSaleProducts();
   populateSupplierItems();
+}
+
+// Expand/collapse a product group
+function expandGroup(btn) {
+  const headRow = btn.closest('tr');
+  let next = headRow.nextElementSibling;
+  let expanding = true;
+  if (btn.dataset.open === '1') expanding = false;
+  while (next && next.classList.contains('group-row')) {
+    next.style.display = expanding ? '' : 'none';
+    next = next.nextElementSibling;
+  }
+  btn.textContent = expanding ? '▴ Collapse' : '▾ Expand';
+  btn.dataset.open = expanding ? '1' : '0';
+}
+
+// Quick restock for whole group (prompt per size — or bulk)
+function quickRestockGroup(idsCsv) {
+  const ids = idsCsv.split(',');
+  const variants = ids.map(id => db.products.find(p=>p.id===id)).filter(Boolean);
+  if (!variants.length) return;
+  // Build a quick prompt showing sizes and asking for per-size qty via a mini-modal
+  const g = variants[0];
+  const html = `
+    <div class="modal-overlay show" id="qrestockModal">
+      <div class="modal" style="max-width:600px;">
+        <h2>+ Restock — ${esc(g.brand)} ${esc(g.model)}</h2>
+        <p class="modal-sub">Enter pairs received for each size</p>
+        <div class="table-wrap"><table class="variant-table" style="font-size:12px;">
+          <thead><tr><th>Size</th><th>Current</th><th>Cost/Pair (₹)</th><th>Pairs Received</th></tr></thead>
+          <tbody>${variants.map(p=>`
+            <tr>
+              <td><strong>${esc(p.size)}</strong> <span class="size-chip ${p.stock===0?'out':'ok'}" style="font-size:10px;">${esc(p.color)}</span></td>
+              <td>${p.stock}</td>
+              <td><input type="number" class="qr-cost" data-id="${p.id}" value="${p.cost}" min="0" step="0.01" style="width:90px;padding:5px 7px;font-size:12px;"></td>
+              <td><input type="number" class="qr-qty" data-id="${p.id}" value="0" min="0" style="width:80px;padding:5px 7px;font-size:12px;"></td>
+            </tr>`).join('')}</tbody>
+        </table></div>
+        <div class="modal-actions">
+          <button class="btn btn-outline" onclick="document.getElementById('qrestockModal').remove()">Cancel</button>
+          <button class="btn btn-gold" onclick="applyQuickRestock()">✦ Add Stock</button>
+        </div>
+      </div>
+    </div>`;
+  const div=document.createElement('div'); div.innerHTML=html;
+  document.body.appendChild(div.firstElementChild);
+}
+function applyQuickRestock() {
+  let totalPairs=0, totalCost=0;
+  document.querySelectorAll('#qrestockModal .qr-qty').forEach(inp => {
+    const id = inp.dataset.id;
+    const qty = parseInt(inp.value)||0;
+    if (qty<=0) return;
+    const costInp = document.querySelector(`#qrestockModal .qr-cost[data-id="${id}"]`);
+    const cost = parseFloat(costInp?.value)||0;
+    const p = db.products.find(x=>x.id===id);
+    if (!p) return;
+    p.stock += qty;
+    if (cost>0) p.cost = cost;
+    totalPairs += qty;
+    totalCost += qty*cost;
+    db.expenses.push({id:uid(),date:todayStr(),category:'Stock Purchase',amount:qty*cost,description:`Restock: ${p.brand} ${p.model} (${p.size}, ${p.color}) x${qty} @ ₹${cost}`});
+  });
+  saveDB();
+  document.getElementById('qrestockModal').remove();
+  renderInventory(); renderDashboard();
+  alert(`✦ Restocked ${totalPairs} pair(s). ${fmt(totalCost)} logged.`);
+}
+
+function openGroupActions(idsCsv) {
+  // Simple context: toggle expand + offer to expand all / edit first
+  const head = event.target.closest('tr');
+  const expandBtn = head.querySelector('button[onclick^="expandGroup"]');
+  if (expandBtn) expandBtn.click();
 }
 
 // ===================== SALES =====================
@@ -2666,6 +2847,298 @@ async function sendWaBatch(messages, delayMs) {
   }
 }
 
+// ------ Purchase shipment template ------
+function downloadShipmentTemplate() {
+  const headers = ['Brand','Model','Category','Color','Cost Price','Selling Price','Reorder','UK-6','UK-7','UK-8','UK-9','UK-10','UK-11'];
+  const sample = [
+    ['Bellmont','Westminster Oxford','Oxfords','Black Calf',4200,8999,2,4,6,8,6,4,2],
+    ['Bellmont','Kensington Chelsea','Chelsea Boots','Oxblood',5500,11999,2,1,2,3,2,1,0],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
+  ws['!cols'] = headers.map(()=>({wch:16}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Shipment');
+  const instr = [
+    ['BELLMONT PURCHASE / SHIPMENT IMPORT TEMPLATE'],
+    [''],
+    ['• One article per row. Put stock qty in each size column.'],
+    ['• Sizes with 0 qty can be left blank or filled 0 — Bellmont will only add sizes with qty>0.'],
+    ['• Add/remove size columns as needed (UK-5, UK-12, EU-42, US-9, etc.) — auto-detected.'],
+    ['• Cost Price is per-pair cost; Selling Price is auto = 2.2× cost if blank.'],
+    ['• New articles are added to inventory automatically; existing SKUs are re-stocked.'],
+  ];
+  const wi = XLSX.utils.aoa_to_sheet(instr); wi['!cols']=[{wch:100}];
+  XLSX.utils.book_append_sheet(wb, wi, 'Instructions');
+  XLSX.writeFile(wb, 'Bellmont-Shipment-Template.xlsx');
+}
+
+// ------ Purchase Excel Import (shipment / supplier matrix) ------
+function openPurchaseImportModal() {
+  refreshSupplierDropdowns();
+  if (!document.getElementById('purchDate').value) document.getElementById('purchDate').value = todayStr();
+  const html = `
+    <div class="modal-overlay show" id="purchImportModal">
+      <div class="modal" style="max-width:850px;">
+        <h2>📥 Import Shipment from Excel</h2>
+        <p class="modal-sub">Upload your supplier's size-matrix Excel and items will be added to this purchase automatically</p>
+
+        <div class="alert alert-info sans" style="font-size:12px;line-height:1.6;">
+          <strong>How it works:</strong><br>
+          • Upload an Excel with one article per row and stock counts per size column (UK-6, UK-7, UK-8, … EU 42, etc.) — same wide format as the Inventory template.<br>
+          • Each size becomes its own line item; existing SKUs are matched &amp; restocked; new articles are added to inventory automatically.<br>
+          • You can edit/remove items in the purchase form after import before clicking "Record Purchase".
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group"><label>Default Cost/Pair (₹)</label>
+            <input type="number" id="piDefaultCost" min="0" step="0.01" value="" placeholder="e.g. 4200 (used if column missing)"></div>
+          <div class="form-group"><label>Default Selling Price (₹)</label>
+            <input type="number" id="piDefaultSell" min="0" step="0.01" value="" placeholder="auto = 2.2× cost"></div>
+          <div class="form-group"><label>Default Reorder Level</label>
+            <input type="number" id="piDefaultReorder" min="0" value="2"></div>
+          <div class="form-group"><label>Duplicate handling</label>
+            <select id="piDupMode">
+              <option value="addstock" selected>Add stock on top (restock)</option>
+              <option value="replace">Replace stock with file value</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin:0 0 10px;display:flex;justify-content:flex-end;">
+          <button class="btn btn-info btn-xs" onclick="downloadShipmentTemplate()">📄 Download shipment template</button>
+        </div>
+        <div style="border:2px dashed var(--line);border-radius:6px;padding:40px;text-align:center;background:var(--ivory);margin:0 0 16px;cursor:pointer;" id="piDropZone" onclick="document.getElementById('piFile').click()">
+          <div style="font-size:40px;margin-bottom:8px;">📦</div>
+          <div style="font-family:Georgia,serif;letter-spacing:2px;font-size:14px;color:var(--green-800);text-transform:uppercase;">Drop Excel file here or click to browse</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:8px;font-family:sans-serif;">Accepts .xlsx, .xls, .csv — size columns UK/EU/US auto-detected</div>
+          <input type="file" id="piFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="handlePurchaseImportFile(event)">
+        </div>
+
+        <div id="piSummary" style="display:none;" class="alert alert-info sans"></div>
+
+        <div class="modal-actions">
+          <button class="btn btn-outline" onclick="document.getElementById('purchImportModal').remove()">Cancel</button>
+          <button class="btn btn-gold" id="piAddBtn" onclick="addImportedItemsToPurchase()" disabled style="opacity:.5">✦ Add Items to Purchase</button>
+        </div>
+      </div>
+    </div>`;
+  const div = document.createElement('div'); div.innerHTML = html;
+  document.body.appendChild(div.firstElementChild);
+  // Drag & drop support
+  const dz = document.getElementById('piDropZone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor='var(--gold-500)'; dz.style.background='var(--cream)'; });
+  dz.addEventListener('dragleave', e => { e.preventDefault(); dz.style.borderColor=''; dz.style.background=''; });
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.style.borderColor=''; dz.style.background='';
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      document.getElementById('piFile').files = e.dataTransfer.files;
+      handlePurchaseImportFile({ target: document.getElementById('piFile') });
+    }
+  });
+}
+
+let _purchImportItems = [];
+
+function handlePurchaseImportFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  if (typeof XLSX === 'undefined') { alert('⚠ Excel library failed to load. Check your internet connection.'); return; }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type:'array' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(firstSheet, { header:1, defval:'', raw:false });
+      if (!json.length) { alert('File is empty.'); return; }
+      const headers = json[0].map(h => String(h||'').trim());
+
+      // Detect columns via aliases (reuse product schema aliases)
+      const productColAliases = IMPORT_SCHEMAS.products.fields;
+      function idxOf(aliases) {
+        for (let i=0;i<headers.length;i++) {
+          const h = headers[i].toLowerCase().replace(/[^a-z0-9]/g,'');
+          for (const a of aliases) {
+            const na = a.toLowerCase().replace(/[^a-z0-9]/g,'');
+            if (h===na || h.includes(na)) return i;
+          }
+        }
+        return -1;
+      }
+      const brandIdx = idxOf(['brand','house','maker','company','supplier brand']);
+      const modelIdx = idxOf(['model','silhouette','name','style','product name','design','item name','article','article name','style name']);
+      const catIdx = idxOf(['category','collection','type','cat','segment']);
+      const colorIdx = idxOf(['color','colour','leather','material','finish','variant','shade']);
+      const skuIdx = idxOf(['sku','sku code','code','item code','product code','barcode','id','article code','style code']);
+      const costIdx = idxOf(['cost','cost price','purchase price','buying price','wholesale price','cp','unit cost','rate','buy rate','landing cost']);
+      const sellIdx = idxOf(['price','selling price','mrp','retail price','sale price','sp','srp','srp price','mrp price']);
+      const reorderIdx = idxOf(['reorder','reorder level','min stock','alert level']);
+      const stockIdx = idxOf(['stock','total','total qty','total stock','total pairs','grand total']); // single total column
+
+      if (brandIdx<0 && modelIdx<0) {
+        alert('⚠ Could not find "Brand" or "Model" column. Please ensure your Excel has at least Brand and Model labelled.');
+        return;
+      }
+
+      // Detect size columns (UK/EU/US + plain numbers) — same logic as products import
+      const sizePatterns = [
+        { re:/^(?:uk[\s\-]?|size[\s\-]?|sz[\s\-]?)(\d{1,2}(?:\.\d)?)$/i, prefix:'UK-' },
+        { re:/^(?:eu[\s\-]?|eur[\s\-]?)(\d{2}(?:\.\d)?)$/i, prefix:'EU-' },
+        { re:/^(?:us[\s\-]?)(\d{1,2}(?:\.\d)?)$/i, prefix:'US-' },
+        { re:/^(\d{1,2}(?:\.\d)?)$/, prefix:'UK-' },
+      ];
+      const sizeCols = [];
+      headers.forEach((h, idx) => {
+        if (idx===brandIdx||idx===modelIdx||idx===catIdx||idx===colorIdx||idx===skuIdx||idx===costIdx||idx===sellIdx||idx===reorderIdx||idx===stockIdx) return;
+        if (!h) return;
+        for (const {re,prefix} of sizePatterns) {
+          const m = h.trim().match(re);
+          if (m) {
+            const n = parseFloat(m[1]);
+            if (n>=2 && n<=50) {
+              // Detect prefix from header
+              let p = prefix;
+              if (/^uk/i.test(h)) p='UK-';
+              else if (/^eu|^eur/i.test(h)) p='EU-';
+              else if (/^us/i.test(h)) p='US-';
+              else if (/^size|^sz/i.test(h)) p='UK-';
+              sizeCols.push({ idx, label: p + m[1] });
+              break;
+            }
+          }
+        }
+      });
+
+      if (!sizeCols.length && stockIdx<0) {
+        alert('⚠ Could not find any size columns (UK-6, UK-7, etc.) or a total Qty column. Please use the Inventory template format.');
+        return;
+      }
+
+      const defCost = parseFloat(document.getElementById('piDefaultCost').value)||0;
+      const defSell = parseFloat(document.getElementById('piDefaultSell').value)||0;
+      const defReorder = parseInt(document.getElementById('piDefaultReorder').value)||2;
+      const dupMode = document.getElementById('piDupMode').value;
+
+      const items = [];
+      for (let i=1;i<json.length;i++) {
+        const r = json[i];
+        if (!r || r.every(v=>v===''||v===null||v===undefined)) continue;
+        const brand = String(brandIdx>=0?r[brandIdx]:'').trim();
+        const model = String(modelIdx>=0?r[modelIdx]:'').trim();
+        if (!brand && !model) continue;
+        const category = catIdx>=0 ? String(r[catIdx]||'').trim()||'Other' : 'Other';
+        const color = colorIdx>=0 ? String(r[colorIdx]||'').trim()||'Default' : 'Default';
+        const sku = skuIdx>=0 ? String(r[skuIdx]||'').trim() : '';
+        const rowCost = costIdx>=0 ? (parseFloat(r[costIdx])||0) : defCost;
+        const rowSell = sellIdx>=0 ? (parseFloat(r[sellIdx])||0) : defSell;
+        const rowReorder = reorderIdx>=0 ? (parseInt(r[reorderIdx])||2) : defReorder;
+
+        // One row per size column
+        if (sizeCols.length) {
+          sizeCols.forEach(sc => {
+            const qty = parseInt(r[sc.idx])||0;
+            if (qty<=0) return; // skip sizes with 0 stock
+            const size = sc.label;
+            const finalSKU = sku ? `${sku}-${size.replace(/[^A-Za-z0-9]/g,'')}` : autoSKU(brand,model,size,color);
+            const sell = rowSell || Math.round(rowCost*2.2);
+            const existing = db.products.find(p=>p.sku.toLowerCase()===finalSKU.toLowerCase());
+            items.push({ brand, model, category, size, color, sku:finalSKU, qty, cost:rowCost, sell, reorder:rowReorder, existingId: existing?existing.id:null });
+          });
+        }
+        // Single-stock-col fallback
+        if (stockIdx>=0 && !sizeCols.length) {
+          const qty = parseInt(r[stockIdx])||0;
+          const size = '—';
+          const finalSKU = sku || autoSKU(brand,model,size,color);
+          const sell = rowSell || Math.round(rowCost*2.2);
+          const existing = db.products.find(p=>p.sku.toLowerCase()===finalSKU.toLowerCase());
+          items.push({ brand, model, category, size, color, sku:finalSKU, qty, cost:rowCost, sell, reorder:rowReorder, existingId: existing?existing.id:null });
+        }
+      }
+
+      if (!items.length) { alert('No valid items found (all quantities may be 0).'); return; }
+      _purchImportItems = { items, dupMode };
+
+      const newItems = items.filter(it=>!it.existingId).length;
+      const restockItems = items.length - newItems;
+      const totalPairs = items.reduce((s,it)=>s+it.qty,0);
+      const totalValue = items.reduce((s,it)=>s+it.qty*it.cost,0);
+      document.getElementById('piSummary').style.display = '';
+      document.getElementById('piSummary').innerHTML = `
+        <strong>✦ ${items.length} size variant(s) ready — ${totalPairs} pairs, total value ${fmt(totalValue)}</strong><br>
+        🆕 ${newItems} new product(s) will be created in inventory · 🔄 ${restockItems} existing SKU(s) will be restocked<br>
+        Mode: ${dupMode==='addstock'?'Stock added on top (re-stock)':'Stock replaced with file value'}<br>
+        <em style="font-size:11px;">Click "Add Items to Purchase" to load into the form below; you can still edit before recording.</em>`;
+      const btn = document.getElementById('piAddBtn');
+      btn.disabled = false; btn.style.opacity = '1';
+    } catch(err) {
+      alert('⚠ Could not read file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function addImportedItemsToPurchase() {
+  const imp = _purchImportItems;
+  if (!imp || !imp.items.length) return;
+  // Auto-create new categories
+  imp.items.forEach(it => {
+    if (it.category && !db.categories.some(c=>c.toLowerCase()===it.category.toLowerCase())) {
+      db.categories.push(it.category);
+    }
+  });
+  refreshCategoryDropdowns();
+  // Add rows to purchase items table
+  imp.items.forEach(it => {
+    const row = document.createElement('tr');
+    row.className = it.existingId ? 'existing-row' : 'new-row';
+    if (it.existingId) {
+      row.innerHTML = `<td colspan="2">
+          <select class="purch-item-prod" style="width:100%">
+            <option value="${it.existingId}" selected>${esc(it.brand)} ${esc(it.model)} ${esc(it.size)} ${esc(it.color)}</option>
+          </select>
+        </td>
+        <td><input type="number" class="purch-item-qty" value="${it.qty}" min="1" style="width:70px" oninput="calcPurchaseTotal()"></td>
+        <td><input type="number" class="purch-item-cost" value="${it.cost}" min="0" step="0.01" style="width:100px" placeholder="cost/pair" oninput="calcPurchaseTotal()"></td>
+        <td class="purch-item-total" style="font-weight:700;width:100px">${fmt(it.qty*it.cost)}</td>
+        <td><button type="button" class="btn btn-danger btn-xs" onclick="this.closest('tr').remove();calcPurchaseTotal()">✕</button></td>`;
+      // Temporarily add the option in case dropdown doesn't have it yet
+    } else {
+      row.innerHTML = `<td colspan="2" style="padding:0;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:4px;">
+            <input type="text" class="purch-new-brand" value="${esc(it.brand)}" style="padding:5px 7px;font-size:12px;">
+            <input type="text" class="purch-new-model" value="${esc(it.model)}" style="padding:5px 7px;font-size:12px;">
+            <select class="purch-new-cat" style="padding:5px 7px;font-size:12px;">${db.categories.map(c=>`<option${c===it.category?' selected':''}>${esc(c)}</option>`).join('')}</select>
+            <input type="text" class="purch-new-size" value="${esc(it.size)}" style="padding:5px 7px;font-size:12px;">
+            <input type="text" class="purch-new-color" value="${esc(it.color)}" style="padding:5px 7px;font-size:12px;">
+            <input type="text" class="purch-new-sku" value="${esc(it.sku)}" style="padding:5px 7px;font-size:12px;">
+          </div>
+        </td>
+        <td><input type="number" class="purch-item-qty" value="${it.qty}" min="1" style="width:70px" oninput="calcPurchaseTotal()"></td>
+        <td><input type="number" class="purch-item-cost" value="${it.cost}" min="0" step="0.01" style="width:100px" placeholder="cost/pair" oninput="calcPurchaseTotal()"></td>
+        <td class="purch-item-total" style="font-weight:700;width:100px">${fmt(it.qty*it.cost)}</td>
+        <td><button type="button" class="btn btn-danger btn-xs" onclick="this.closest('tr').remove();calcPurchaseTotal()">✕</button></td>`;
+    }
+    document.getElementById('purchaseItems').appendChild(row);
+  });
+  // For existing-row dropdowns we need to populate the full product list and select the matching one
+  populateSupplierItems();
+  imp.items.forEach((it, idx) => {
+    if (it.existingId) {
+      const rows = document.querySelectorAll('#purchaseItems tr.existing-row');
+      const row = rows[rows.length - (imp.items.length - idx)];
+      if (row) {
+        const sel = row.querySelector('.purch-item-prod');
+        if (sel) sel.value = it.existingId;
+      }
+    }
+  });
+  calcPurchaseTotal();
+  document.getElementById('purchImportModal').remove();
+  _purchImportItems = [];
+  alert(`✦ ${imp.items.length} item(s) loaded into purchase form. Review and click "✦ Record Purchase" to commit stock and ledger.`);
+}
+
 // ------ Purchase Bulk New Product Modal ------
 function openPurchaseBulkNewModal() {
   refreshCategoryDropdowns();
@@ -2902,24 +3375,31 @@ const IMPORT_SCHEMAS = {
     label: 'Inventory',
     sheetName: 'Inventory',
     fileName: 'Bellmont-Inventory-Template.xlsx',
-    headers: ['SKU','Brand','Model','Category','Size','Color','Cost Price','Selling Price','Stock','Reorder Level'],
+    headers: ['Brand','Model','Category','Color','Cost Price','Selling Price','Reorder','UK-6','UK-7','UK-8','UK-9','UK-10','UK-11'],
     sample: [
+      ['Bellmont','Westminster Oxford','Oxfords','Black Calf',4200,8999,2,2,4,6,4,2,0],
+      ['Bellmont','Kensington Chelsea','Chelsea Boots','Oxblood',5500,11999,2,0,1,2,1,1,0],
+      ['Bellmont','Mayfair Loafer','Loafers','Tan Suede',3800,7499,2,3,5,8,5,3,1],
+    ],
+    sampleLongFormat: [
       ['BM-OXFD-BLK-UK8','Bellmont','Westminster Oxford','Oxfords','UK-8','Black Calf',4200,8999,6,2],
       ['BM-CHLS-OXB-UK9','Bellmont','Kensington Chelsea','Chelsea Boots','UK-9','Oxblood',5500,11999,0,2],
-      ['BM-LOAF-TAN-UK8','Bellmont','Mayfair Loafer','Loafers','UK-8','Tan Suede',3800,7499,8,2],
     ],
     fields: [
       { key:'sku',      label:'SKU',       aliases:['sku','sku code','code','item code','product code','barcode','id'], type:'text',   required:false },
       { key:'brand',    label:'Brand',     aliases:['brand','house','maker','company'], type:'text', required:true },
-      { key:'model',    label:'Model',     aliases:['model','silhouette','name','style','product name','design','item name'], type:'text', required:true },
+      { key:'model',    label:'Model',     aliases:['model','silhouette','name','style','product name','design','item name','article'], type:'text', required:true },
       { key:'category', label:'Category',  aliases:['category','collection','type','cat'], type:'text', default:'Other' },
       { key:'size',     label:'Size',      aliases:['size','uk size','eu size','us size','shoe size'], type:'text', default:'—' },
       { key:'color',    label:'Color',     aliases:['color','colour','leather','material','finish'], type:'text', default:'Default' },
       { key:'cost',     label:'Cost',      aliases:['cost','cost price','purchase price','buying price','wholesale price','cp','unit cost'], type:'num', default:0 },
       { key:'sell',     label:'Price',     aliases:['price','selling price','mrp','retail price','sale price','sp','unit price','srp'], type:'num' },
-      { key:'stock',    label:'Stock',     aliases:['stock','quantity','qty','pcs','pairs','units','inventory','available','on hand'], type:'int', default:0 },
+      { key:'stock',    label:'Stock',     aliases:['stock','quantity','qty','pcs','pairs','units','inventory','available','on hand','total'], type:'int', default:0 },
       { key:'reorder',  label:'Reorder',   aliases:['reorder','reorder level','min stock','alert level','reorder point'], type:'int', default:2 },
     ],
+    // Auto-detect "wide" format: columns that look like sizes (UK-6, Size 7, EU 42, plain numbers 6-14, etc.)
+    // If found with no explicit Size+Stock pair, they become per-size stock columns
+    detectWide: true,
     dupKey: 'sku',
     dupModes: [
       { value:'update',  label:'Update price/cost/stock/category' },
@@ -3052,14 +3532,54 @@ function mapColsForSchema(headers, schema) {
 
 // ------ Download template ------
 function downloadImportTemplate(entityType) {
-  // Default to products for backward compat
   const type = entityType || 'products';
   const schema = IMPORT_SCHEMAS[type];
   if (!schema) return;
-  const ws = XLSX.utils.aoa_to_sheet([schema.headers, ...schema.sample]);
-  ws['!cols'] = schema.headers.map(()=>({wch:20}));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, schema.sheetName);
+  if (type === 'products') {
+    // Wide-format sheet (one article per row, size columns across) — recommended for bulk entry
+    const wideHeaders = schema.headers;
+    const wideSample = schema.sample;
+    const wsWide = XLSX.utils.aoa_to_sheet([wideHeaders, ...wideSample]);
+    wsWide['!cols'] = wideHeaders.map(()=>({wch:16}));
+    XLSX.utils.book_append_sheet(wb, wsWide, 'Inventory (Sizes Across)');
+    // Long-format sheet (one SKU per row) for legacy compatibility
+    const longHeaders = ['SKU','Brand','Model','Category','Size','Color','Cost Price','Selling Price','Stock','Reorder Level'];
+    const wsLong = XLSX.utils.aoa_to_sheet([longHeaders, ...schema.sampleLongFormat]);
+    wsLong['!cols'] = longHeaders.map(()=>({wch:18}));
+    XLSX.utils.book_append_sheet(wb, wsLong, 'Inventory (One-per-row)');
+    // Instructions sheet
+    const instr = [
+      ['BELLMONT INVENTORY IMPORT — HOW TO USE'],
+      [''],
+      ['Two formats are supported — use whichever you prefer:'],
+      [''],
+      ['📄 SHEET 1: "Inventory (Sizes Across)" — RECOMMENDED'],
+      ['   One article per row, stock per size in columns (UK-6, UK-7, ...).'],
+      ['   Bellmont will automatically expand each size into its own SKU.'],
+      ['   Columns can be named "UK-6", "Size 7", "EU 42", "US-8", or even just plain "6","7","8", etc.'],
+      ['   You can add as many size columns as you need (UK-3 to UK-13, EU 36-48, etc.).'],
+      [''],
+      ['📄 SHEET 2: "Inventory (One-per-row)" — Legacy'],
+      ['   One row per individual SKU (each size+color combination is its own row).'],
+      ['   Use this if you already have a flat list or your ERP exports this way.'],
+      [''],
+      ['RULES:'],
+      ['• Brand and Model are required. Everything else is optional / has smart defaults.'],
+      ['• Leave SKU blank — Bellmont auto-generates it (BM-BRAND-MODEL-SIZE-COLOR).'],
+      ['• Blank stock cells count as 0 (not in stock for that size).'],
+      ['• Column names are flexible: "Brand"/"Maker"/"House" all work, "Price"/"MRP"/"SP" all work.'],
+      ['• New categories are auto-created on import.'],
+      ['• Cost/Sell price can be entered per article (applies to all sizes) or left blank to auto-calc.'],
+    ];
+    const wsInstr = XLSX.utils.aoa_to_sheet(instr);
+    wsInstr['!cols'] = [{wch:100}];
+    XLSX.utils.book_append_sheet(wb, wsInstr, 'Instructions');
+  } else {
+    const ws = XLSX.utils.aoa_to_sheet([schema.headers, ...(schema.sample||[])]);
+    ws['!cols'] = schema.headers.map(()=>({wch:20}));
+    XLSX.utils.book_append_sheet(wb, ws, schema.sheetName);
+  }
   XLSX.writeFile(wb, schema.fileName);
 }
 
@@ -3082,28 +3602,70 @@ function handleBulkImport(entityType, evt) {
       if (!json.length) { alert('The file appears empty.'); return; }
       const headers = json[0].map(h => String(h||'').trim());
       const colMap = mapColsForSchema(headers, schema);
-      // Check for required fields
-      const missing = schema.fields.filter(f => f.required && colMap[f.key]===undefined);
-      if (missing.length) {
-        alert(`⚠ Could not find required column(s): ${missing.map(f=>f.label).join(', ')}\n\nPlease use the 📄 Template button to download a properly-formatted file, or check your column headers.`);
-        return;
+
+      // ---- Wide-format detection for products ----
+      // If the file has columns that look like sizes (UK-6, Size 8, EU-42, plain number 6-15),
+      // and no explicit "Size" column was identified, treat them as per-size stock columns.
+      let sizeCols = [];
+      let stockCol = colMap.stock;
+      let sizeCol = colMap.size;
+      if (entityType === 'products' && schema.detectWide) {
+        const sizePatterns = [
+          /^(?:uk[\s\-]?|size[\s\-]?|sz[\s\-]?)(\d{1,2}(?:\.\d)?)$/i,   // UK-8, size 9, sz 10
+          /^(?:eu[\s\-]?|eur[\s\-]?)(\d{2}(?:\.\d)?)$/i,                  // EU 42, EU-43
+          /^(?:us[\s\-]?)(\d{1,2}(?:\.\d)?)$/i,                           // US 9, US-10
+          /^(\d{1,2}(?:\.\d)?)$/,                                         // plain "8", "9", "10" (1-2 digit numbers)
+        ];
+        // Skip the "Stock/Total/Qty" stock column — only match columns whose header is a size
+        sizeCols = [];
+        headers.forEach((h, idx) => {
+          if (!h) return;
+          const t = h.trim();
+          // Skip if this column is already mapped to another field (stock, cost, sell, etc.)
+          const alreadyMapped = Object.values(colMap).includes(idx);
+          if (alreadyMapped && colMap.stock !== idx) return;
+          for (const pat of sizePatterns) {
+            const m = t.match(pat);
+            if (m) {
+              const num = parseFloat(m[1]);
+              if (num >= 2 && num <= 50) {
+                // Determine prefix
+                let prefix = '';
+                if (/^uk/i.test(t)) prefix = 'UK-';
+                else if (/^eu|^eur/i.test(t)) prefix = 'EU-';
+                else if (/^us/i.test(t)) prefix = 'US-';
+                else if (/^size|^sz/i.test(t)) prefix = 'UK-'; // assume UK if "Size X"
+                else prefix = 'UK-'; // plain number → default to UK
+                sizeCols.push({ idx, sizeLabel: prefix + m[1], rawHeader: t });
+                break;
+              }
+            }
+          }
+        });
+        // If we found size columns AND there's no explicit "Size" column, treat as wide format
+        if (sizeCols.length >= 2 && !sizeCol) {
+          // Wide format: each size column is the stock for that size
+          // The stock column (if any) is ignored; we'll use size columns directly
+          stockCol = undefined;
+        } else {
+          // Not wide format
+          sizeCols = [];
+        }
       }
       const rows = [];
-      for (let i=1; i<json.length; i++) {
-        const r = json[i];
-        if (!r || r.every(v => v===''||v===null||v===undefined)) continue;
+      // Helper to build a single row object from raw cell values
+      function buildObject(r, overrideSize, overrideStock) {
         const obj = {};
-        let hasAny = false;
         schema.fields.forEach(f => {
           let val;
-          if (colMap[f.key] !== undefined) val = r[colMap[f.key]];
+          if (f.key === 'size' && overrideSize !== undefined) { val = overrideSize; }
+          else if (f.key === 'stock' && overrideStock !== undefined) { val = overrideStock; }
+          else if (colMap[f.key] !== undefined) val = r[colMap[f.key]];
           else val = f.default!==undefined ? f.default : '';
           val = (val===null||val===undefined) ? '' : String(val).trim();
-          if (val !== '' && val !== null) hasAny = true;
           if (f.type === 'num') obj[f.key] = parseFloat(val)||0;
           else if (f.type === 'int') obj[f.key] = parseInt(val)||0;
           else if (f.type === 'date') {
-            // Try to normalize date
             let d = val;
             if (val) {
               const parsed = new Date(val);
@@ -3112,53 +3674,93 @@ function handleBulkImport(entityType, evt) {
             obj[f.key] = d || todayStr();
           } else obj[f.key] = val || (f.default||'');
         });
-        if (!hasAny) continue;
-        // Entity-specific defaults + dup detection
-        if (entityType === 'products') {
-          if (!obj.brand && !obj.model) continue;
-          if (!obj.sku) obj.sku = autoSKU(obj.brand,obj.model,obj.size,obj.color);
-          if (!obj.sell) obj.sell = Math.round((obj.cost||0)*2.2);
-          const dup = db.products.find(p => p.sku && obj.sku && p.sku.toLowerCase()===obj.sku.toLowerCase());
-          obj._existingId = dup ? dup.id : null;
-          obj._existingStock = dup ? dup.stock : 0;
-        } else if (entityType === 'sales') {
-          if (!obj.unitPrice && !obj.total) continue;
-          // Resolve product by SKU
-          let prod = null;
-          if (obj.sku) prod = db.products.find(p => p.sku.toLowerCase()===obj.sku.toLowerCase());
-          // Auto-calc total
-          if (!obj.total || obj.total===0) obj.total = Math.max(0, obj.qty*obj.unitPrice - (obj.discount||0) + (obj.delivery||0));
-          if (!obj.invoiceNo) obj.invoiceNo = 'IMP-' + todayStr().replace(/-/g,'') + '-' + String(rows.length+1).padStart(3,'0');
-          if (!obj.unitCost && prod) obj.unitCost = prod.cost;
-          if (!obj.productName && prod) obj.productName = `${prod.brand} ${prod.model} ${prod.size} ${prod.color}`;
-          if (!obj.category && prod) obj.category = prod.category;
-          obj.productId = prod ? prod.id : null;
-          const dup = db.sales.find(s => s.invoiceNo && obj.invoiceNo && s.invoiceNo.toLowerCase()===obj.invoiceNo.toLowerCase());
-          obj._existingId = dup ? dup.id : null;
-        } else if (entityType === 'expenses') {
-          if (!obj.amount || obj.amount<=0) continue;
-          // Check duplicates by date+amount+desc
-          const dup = db.expenses.find(e => e.date===obj.date && Math.abs(e.amount-obj.amount)<0.01 && (e.description||'')===obj.description);
-          obj._existingId = dup ? dup.id : null;
-        } else if (entityType === 'customers') {
-          if (!obj.name || !obj.phone) continue;
-          const phoneDigits = obj.phone.replace(/\D/g,'');
-          const dup = db.sales.find(s => s.phone && s.phone.replace(/\D/g,'')===phoneDigits);
-          // Also check existing customerContactList stored (we'll add them via placeholder sales or direct list)
-          // Since customers are derived from sales, we'll store imported patrons as contact-only placeholder entries
-          obj._phoneDigits = phoneDigits;
-          obj._existingId = dup ? 'derived' : null;
-        } else if (entityType === 'suppliers') {
-          if (!obj.name || !obj.phone) continue;
-          const phoneDigits = obj.phone.replace(/\D/g,'');
-          const dup = db.suppliers.find(s => s.phone && s.phone.replace(/\D/g,'')===phoneDigits);
-          obj._existingId = dup ? dup.id : null;
-        }
-        obj._action = obj._existingId && obj._existingId!=='derived' ? 'update' : 'add';
-        rows.push(obj);
+        return obj;
       }
+
+      for (let i=1; i<json.length; i++) {
+        const r = json[i];
+        if (!r || r.every(v => v===''||v===null||v===undefined)) continue;
+
+        if (entityType === 'products' && sizeCols.length) {
+          // ---- Wide format: one row → multiple SKU rows (one per size with stock > 0) ----
+          // Build a base object ignoring size/stock columns
+          const base = buildObject(r);
+          if (!base.brand && !base.model) continue;
+          let expandedAny = false;
+          sizeCols.forEach(sc => {
+            const stockVal = parseInt(r[sc.idx])||0;
+            // Always create a row for every size column, even if stock is 0 (so all sizes are in system)
+            const obj = Object.assign({}, base);
+            obj.size = sc.sizeLabel;
+            obj.stock = stockVal;
+            if (!obj.sku) obj.sku = autoSKU(obj.brand, obj.model, obj.size, obj.color);
+            if (!obj.sell) obj.sell = Math.round((obj.cost||0)*2.2);
+            const dup = db.products.find(p => p.sku && obj.sku && p.sku.toLowerCase()===obj.sku.toLowerCase());
+            obj._existingId = dup ? dup.id : null;
+            obj._existingStock = dup ? dup.stock : 0;
+            obj._action = obj._existingId ? 'update' : 'add';
+            rows.push(obj);
+            expandedAny = true;
+          });
+          if (!expandedAny) continue;
+        } else {
+          // Normal (long) format
+          const obj = buildObject(r);
+          let hasAny = schema.fields.some(f => String(obj[f.key]||'').length > 0);
+          if (!hasAny) continue;
+
+          // Entity-specific defaults + dup detection
+          if (entityType === 'products') {
+            if (!obj.brand && !obj.model) continue;
+            if (!obj.sku) obj.sku = autoSKU(obj.brand,obj.model,obj.size,obj.color);
+            if (!obj.sell) obj.sell = Math.round((obj.cost||0)*2.2);
+            const dup = db.products.find(p => p.sku && obj.sku && p.sku.toLowerCase()===obj.sku.toLowerCase());
+            obj._existingId = dup ? dup.id : null;
+            obj._existingStock = dup ? dup.stock : 0;
+            obj._action = obj._existingId ? 'update' : 'add';
+            rows.push(obj);
+          } else if (entityType === 'sales') {
+            if (!obj.unitPrice && !obj.total) { return; }
+            // Resolve product by SKU
+            let prod = null;
+            if (obj.sku) prod = db.products.find(p => p.sku.toLowerCase()===obj.sku.toLowerCase());
+            // Auto-calc total
+            if (!obj.total || obj.total===0) obj.total = Math.max(0, obj.qty*obj.unitPrice - (obj.discount||0) + (obj.delivery||0));
+            if (!obj.invoiceNo) obj.invoiceNo = 'IMP-' + todayStr().replace(/-/g,'') + '-' + String(rows.length+1).padStart(3,'0');
+            if (!obj.unitCost && prod) obj.unitCost = prod.cost;
+            if (!obj.productName && prod) obj.productName = `${prod.brand} ${prod.model} ${prod.size} ${prod.color}`;
+            if (!obj.category && prod) obj.category = prod.category;
+            obj.productId = prod ? prod.id : null;
+            const dup = db.sales.find(s => s.invoiceNo && obj.invoiceNo && s.invoiceNo.toLowerCase()===obj.invoiceNo.toLowerCase());
+            obj._existingId = dup ? dup.id : null;
+            obj._action = obj._existingId ? 'update' : 'add';
+            rows.push(obj);
+          } else if (entityType === 'expenses') {
+            if (!obj.amount || obj.amount<=0) return;
+            const dup = db.expenses.find(e => e.date===obj.date && Math.abs(e.amount-obj.amount)<0.01 && (e.description||'')===obj.description);
+            obj._existingId = dup ? dup.id : null;
+            obj._action = dup ? 'update' : 'add';
+            rows.push(obj);
+          } else if (entityType === 'customers') {
+            if (!obj.name || !obj.phone) return;
+            const phoneDigits = obj.phone.replace(/\D/g,'');
+            const dup = db.sales.find(s => s.phone && s.phone.replace(/\D/g,'')===phoneDigits);
+            obj._phoneDigits = phoneDigits;
+            obj._existingId = dup ? 'derived' : null;
+            obj._action = 'add';
+            rows.push(obj);
+          } else if (entityType === 'suppliers') {
+            if (!obj.name || !obj.phone) return;
+            const phoneDigits = obj.phone.replace(/\D/g,'');
+            const dup = db.suppliers.find(s => s.phone && s.phone.replace(/\D/g,'')===phoneDigits);
+            obj._existingId = dup ? dup.id : null;
+            obj._action = obj._existingId ? 'update' : 'add';
+            rows.push(obj);
+          }
+        } // end of long-format else
+      } // end of row loop
       if (!rows.length) { alert('No valid rows found in the file.'); return; }
-      _bulkImportState = { entityType, rows, schema };
+      _bulkImportState = { entityType, rows, schema, wideFormat: sizeCols.length > 0, wideSizeCount: sizeCols.length };
       showBulkImportPreview();
     } catch(err) {
       alert('⚠ Could not read the file. Please ensure it is a valid .xlsx, .xls, or .csv file.\n\nError: ' + err.message);
@@ -3232,7 +3834,8 @@ function showBulkImportPreview() {
 
         <div class="alert alert-info sans" style="font-size:12px;">
           <strong>Tips:</strong> You can edit any cell directly before confirming. Uncheck rows to skip them.
-          ${entityType==='products'?'<br>• Blank SKUs are auto-generated. New categories are auto-created.':''}
+          ${entityType==='products' && st.wideFormat?`<br>• 🎯 Detected <strong>wide format</strong>: ${st.wideSizeCount} size columns (e.g. UK-6 through UK-11). Each size was expanded into its own SKU automatically.`:''}
+          ${entityType==='products'?'<br>• Blank SKUs are auto-generated (BM-BRAND-MODEL-SIZE-COLOR). New categories are auto-created.':''}
           ${entityType==='sales'?'<br>• Products must exist in inventory (matched by SKU) for stock to decrement; otherwise sales are logged with product name as text. Totals auto-calculate if blank.':''}
           ${entityType==='customers'?'<br>• Patrons are matched by phone number. Imported patrons appear in your list even if they have no purchase history yet.':''}
         </div>
@@ -3402,5 +4005,5 @@ function confirmBulkImport() {
 // ---- Backward-compat aliases (for the inventory buttons which use the old function names) ----
 function handleExcelImport(evt) { handleBulkImport('products', evt); }
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a39fc92a7b05c0e2',t:'MTc4OTIyNTI2OA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3a6a8286ecfabaa',t:'MTc4OTI5NzMxNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
