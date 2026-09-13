@@ -530,11 +530,20 @@
       </div>
       <div class="table-wrap">
         <table><thead><tr>
+          <th style="width:30px;"><input type="checkbox" id="invSelectAll" onchange="toggleInvSelectAll(this)" title="Select all"></th>
           <th style="width:60px;">Photo</th>
           <th>Article</th>
           <th colspan="2">Sizes & Stock</th>
-          <th>Cost</th><th>Price</th><th>Total Stock</th><th>Margin</th><th style="width:240px;">Actions</th>
+          <th>Cost</th><th>Price</th><th>Total Stock</th><th>Margin</th><th style="width:280px;">Actions</th>
         </tr></thead><tbody id="invTable"></tbody></table>
+      </div>
+      <div id="bulkDeleteBar" style="margin-top:12px;padding:12px 16px;background:#fbe5e5;border:1px solid #e8c5c5;border-radius:6px;display:none;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span style="font-family:Georgia,serif;font-weight:700;color:#a83232;" id="bulkDeleteCount">0 selected</span>
+        <button class="btn btn-danger btn-sm" onclick="bulkDeleteSelected()">🗑 Delete Selected</button>
+        <button class="btn btn-outline btn-sm" onclick="clearInvSelection()">Clear Selection</button>
+        <span style="margin-left:auto;">
+          <button class="btn btn-danger btn-sm" onclick="deleteAllInventoryPrompt()" style="background:#7a1f1f;border-color:#7a1f1f;">⚠ Delete ALL Inventory</button>
+        </span>
       </div>
     </div>
   </div>
@@ -1366,7 +1375,8 @@ function renderInventory() {
       : (g.items.some(p=>p.stock<=p.reorder) ? '<span class="badge badge-low">Low Stock</span>' : '<span class="badge badge-ok">In Stock</span>');
 
     // Group header row
-    html += `<tr class="prod-group-head">
+    html += `<tr class="prod-group-head" data-groupkey="grp-${groupList.indexOf(g)}">
+      <td><input type="checkbox" class="inv-group-check" data-groupkey="grp-${groupList.indexOf(g)}" onchange="toggleGroupCheck(this)" title="Select all sizes of this article"></td>
       <td>${thumbHTML(g.primary, 48)}</td>
       <td style="vertical-align:middle;">
         <div class="grp-title">${esc(g.brand)} <span style="color:var(--muted);font-weight:400;">·</span> ${esc(g.model)}</div>
@@ -1389,8 +1399,9 @@ function renderInventory() {
     g.items.forEach(p => {
       const badge = p.stock===0?'<span class="badge badge-out">Out</span>':p.stock<=p.reorder?'<span class="badge badge-low">Low</span>':'<span class="badge badge-ok">In Stock</span>';
       const m = p.sell>0?((p.sell-p.cost)/p.sell*100).toFixed(1):0;
-      html += `<tr class="group-row" style="display:none;">
-        <td style="padding-left:60px;">${thumbHTML(p,28)}</td>
+      html += `<tr class="group-row" style="display:none;" data-pid="${p.id}" data-groupkey="grp-${groupList.indexOf(g)}">
+        <td style="padding-left:50px;"><input type="checkbox" class="inv-item-check" data-pid="${p.id}" onchange="updateBulkDeleteBar()"></td>
+        <td style="padding-left:10px;">${thumbHTML(p,28)}</td>
         <td><code style="font-size:11px;">${esc(p.sku)}</code> <span style="color:var(--muted);font-size:11px;">— ${esc(p.color)}</span></td>
         <td><span class="size-chip ${p.stock===0?'out':p.stock<=p.reorder?'low':'ok'}">${esc(p.size)}</span></td>
         <td>${badge}</td>
@@ -1480,10 +1491,85 @@ function applyQuickRestock() {
 }
 
 function openGroupActions(idsCsv) {
-  // Simple context: toggle expand + offer to expand all / edit first
   const head = event.target.closest('tr');
   const expandBtn = head.querySelector('button[onclick^="expandGroup"]');
   if (expandBtn) expandBtn.click();
+}
+
+// ---- Bulk selection & delete ----
+function toggleInvSelectAll(cb) {
+  const checked = cb.checked;
+  // When header "select all" is ticked, auto-expand all groups and select every item
+  document.querySelectorAll('.inv-item-check').forEach(c => c.checked = checked);
+  document.querySelectorAll('.inv-group-check').forEach(c => c.checked = checked);
+  document.querySelectorAll('.group-row').forEach(r => r.style.display = checked ? '' : 'none');
+  // Reset expand buttons text
+  document.querySelectorAll('button[onclick^="expandGroup"]').forEach(b => { b.textContent = checked ? '▴ Collapse' : '▾ Expand'; b.dataset.open = checked?'1':'0'; });
+  updateBulkDeleteBar();
+}
+function toggleGroupCheck(cb) {
+  const gk = cb.dataset.groupkey;
+  // Expand the group so item checkboxes are visible
+  const rows = document.querySelectorAll(`tr.group-row[data-groupkey="${gk}"]`);
+  rows.forEach(r => {
+    r.style.display = cb.checked ? '' : 'none';
+    const ic = r.querySelector('.inv-item-check');
+    if (ic) ic.checked = cb.checked;
+  });
+  // Flip the expand button
+  const head = cb.closest('tr');
+  const exp = head.querySelector('button[onclick^="expandGroup"]');
+  if (exp) { exp.textContent = cb.checked ? '▴ Collapse' : '▾ Expand'; exp.dataset.open = cb.checked?'1':'0'; }
+  updateBulkDeleteBar();
+}
+function updateBulkDeleteBar() {
+  const checks = document.querySelectorAll('.inv-item-check');
+  const selected = document.querySelectorAll('.inv-item-check:checked');
+  const bar = document.getElementById('bulkDeleteBar');
+  const count = document.getElementById('bulkDeleteCount');
+  const allCheck = document.getElementById('invSelectAll');
+  if (!bar) return;
+  if (selected.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = `${selected.length} SKU(s) selected`;
+  } else {
+    bar.style.display = 'none';
+  }
+  if (allCheck) allCheck.checked = checks.length>0 && selected.length===checks.length;
+  // Sync group checkboxes
+  document.querySelectorAll('.inv-group-check').forEach(gc => {
+    const gk = gc.dataset.groupkey;
+    const items = document.querySelectorAll(`tr.group-row[data-groupkey="${gk}"] .inv-item-check`);
+    const sel = document.querySelectorAll(`tr.group-row[data-groupkey="${gk}"] .inv-item-check:checked`);
+    gc.checked = items.length>0 && sel.length===items.length;
+  });
+}
+function clearInvSelection() {
+  document.querySelectorAll('.inv-item-check, .inv-group-check, #invSelectAll').forEach(c => c.checked = false);
+  updateBulkDeleteBar();
+}
+function bulkDeleteSelected() {
+  const selected = [...document.querySelectorAll('.inv-item-check:checked')].map(c => c.dataset.pid);
+  if (!selected.length) return;
+  if (!confirm(`⚠ Delete ${selected.length} selected SKU(s)?\n\nThis will permanently remove them from inventory. Sales history will remain.`)) return;
+  db.products = db.products.filter(p => !selected.includes(p.id));
+  saveDB(); renderInventory(); renderDashboard();
+  clearInvSelection();
+  alert(`✦ Deleted ${selected.length} SKU(s).`);
+}
+
+// ---- Delete ALL inventory with master password ----
+function deleteAllInventoryPrompt() {
+  if (!confirm('⚠ DANGER: This will DELETE THE ENTIRE INVENTORY.\n\nAll products, all SKUs, all sizes will be erased permanently.\nSales history, customers, suppliers, and expenses will remain.\n\nContinue?')) return;
+  const step1 = prompt('Type "DELETE ALL" to confirm:');
+  if (step1 !== 'DELETE ALL') return;
+  const pwd = prompt('Enter master password to confirm deletion:');
+  if (pwd !== 'Bellmont@2026') { alert('✕ Incorrect password. Operation cancelled.'); return; }
+  if (!confirm('LAST CHANCE:\nAll inventory will be permanently erased. Proceed?')) return;
+  db.products = [];
+  saveDB(); renderInventory(); renderDashboard();
+  clearInvSelection();
+  alert('✓ Entire inventory has been deleted.');
 }
 
 // ===================== SALES =====================
@@ -3896,9 +3982,25 @@ function confirmBulkImport() {
       const existing = db.products.find(p => p.id===r._existingId) || (r.sku?db.products.find(p=>p.sku.toLowerCase()===r.sku.toLowerCase()):null);
       if (existing) {
         if (dupMode==='skip') { skipped++; return; }
-        existing.brand=r.brand; existing.model=r.model; existing.category=r.category; existing.size=r.size; existing.color=r.color;
-        existing.cost=r.cost; existing.sell=r.sell; existing.reorder=r.reorder;
-        if (dupMode==='addstock') existing.stock += r.stock; else existing.stock = r.stock;
+        // FULL SYNC: overwrite EVERY column from the uploaded Excel file.
+        // Stock is handled per mode; all other fields (brand/model/category/color/cost/sell/reorder/size)
+        // always get updated to match the file on re-upload.
+        existing.brand=r.brand;
+        existing.model=r.model;
+        existing.category=r.category;
+        existing.size=r.size;
+        existing.color=r.color;
+        existing.cost=r.cost;
+        existing.sell=r.sell;
+        existing.reorder=r.reorder;
+        if (dupMode==='addstock') existing.stock += r.stock;
+        else existing.stock = r.stock;
+        // If SKU was changed in the Excel, update it (ensuring uniqueness)
+        if (r.sku && r.sku.toLowerCase() !== existing.sku.toLowerCase()) {
+          let u = r.sku, n=1;
+          while (db.products.some(p=>p.sku===u && p.id!==existing.id)) u = `${r.sku}-${++n}`;
+          existing.sku = u;
+        }
         updated++;
       } else {
         let u=r.sku, n=1; while(db.products.some(p=>p.sku===u)) u=`${r.sku}-${++n}`;
@@ -4005,5 +4107,5 @@ function confirmBulkImport() {
 // ---- Backward-compat aliases (for the inventory buttons which use the old function names) ----
 function handleExcelImport(evt) { handleBulkImport('products', evt); }
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3a6a8286ecfabaa',t:'MTc4OTI5NzMxNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3a80516aa99302f',t:'MTc4OTMxMTYwOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
