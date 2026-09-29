@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Bellmont — Loading...</title>
+<script>
+// Loader to bypass GitHub Pages index.html CDN cache issue - loads actual app from app.html
+fetch('app.html?v='+Date.now()).then(r=>r.text()).then(html=>{
+  document.open();
+  document.write(html);
+  document.close();
+}).catch(e=>{
+  document.body.innerHTML='<h2>Loading Bellmont...</h2><p>If not redirected, <a href="app.html">click here to open app</a></p><script>location.href="app.html"<\/script>';
+});
+</script>
+</head><body><p>Loading Bellmont Atelier...</p><p><a href="app.html">Click here if not redirected</a></p></body></html>
