@@ -1,13 +1,22 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Bellmont — Loading...</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bellmont — Loading...</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#faf7ef;color:#1a2520} .box{text-align:center} a{color:#c9a24c}</style>
 <script>
-// Loader to bypass GitHub Pages index.html CDN cache issue - loads actual app from app.html
-fetch('app.html?v='+Date.now()).then(r=>r.text()).then(html=>{
-  document.open();
-  document.write(html);
-  document.close();
-}).catch(e=>{
-  document.body.innerHTML='<h2>Loading Bellmont...</h2><p>If not redirected, <a href="app.html">click here to open app</a></p><script>location.href="app.html"<\/script>';
-});
+// Bypass GitHub Pages index.html CDN stuck at old commit 6a854e4 with conflict markers
+// Real app is in app.html (2.4MB) which does update. Load it via fetch and document.write
+(function(){
+  var appUrl = 'app.html?v=' + Date.now();
+  fetch(appUrl).then(function(r){ if(!r.ok) throw new Error('fetch failed '+r.status); return r.text(); }).then(function(html){
+    // Replace current document with app.html content
+    document.open();
+    document.write(html);
+    document.close();
+  }).catch(function(e){
+    console.error(e);
+    document.getElementById('msg').innerHTML = 'Loading failed, <a href="app.html">click here to open Bellmont app directly</a>.';
+    // Fallback redirect after 1s
+    setTimeout(function(){ location.href='app.html'; }, 1000);
+  });
+})();
 </script>
-</head><body><p>Loading Bellmont Atelier...</p><p><a href="app.html">Click here if not redirected</a></p></body></html>
+</head><body><div class="box"><h2>✦ Bellmont Atelier</h2><p id="msg">Loading inventory & sales manager...</p><p><a href="app.html">Open app directly</a></p></div></body></html>
