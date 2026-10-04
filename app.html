@@ -4188,8 +4188,43 @@ function handleBulkImport(entityType, evt) {
           else if (f.type === 'date') {
             let d = val;
             if (val) {
-              const parsed = new Date(val);
-              if (!isNaN(parsed.getTime())) d = toLocalDateStr(parsed);
+              let parsedDateStr = null;
+              // Excel serial number (e.g. 45200)
+              if (typeof val === 'number' && val > 1000 && val < 100000) {
+                const base = new Date(1899, 11, 30);
+                base.setDate(base.getDate() + Math.floor(val));
+                parsedDateStr = toLocalDateStr(base);
+              } else if (val instanceof Date) {
+                parsedDateStr = toLocalDateStr(val);
+              } else {
+                const s = String(val).trim();
+                // YYYY-MM-DD or YYYY/MM/DD
+                let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+                if (m) {
+                  const y = +m[1], mo = +m[2], da = +m[3];
+                  if (mo>=1&&mo<=12&&da>=1&&da<=31) parsedDateStr = toLocalDateStr(new Date(y, mo-1, da));
+                }
+                // DD/MM/YYYY or DD-MM-YYYY (Indian) - prefer this
+                if (!parsedDateStr) {
+                  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+                  if (m) {
+                    let a = +m[1], b = +m[2], c = +m[3];
+                    if (c < 100) c += 2000;
+                    // a=day, b=month for DD/MM
+                    if (b>=1&&b<=12&&a>=1&&a<=31) {
+                      parsedDateStr = toLocalDateStr(new Date(c, b-1, a));
+                    } else if (a>=1&&a<=12&&b>=1&&b<=31) {
+                      // fallback MM/DD/YYYY
+                      parsedDateStr = toLocalDateStr(new Date(c, a-1, b));
+                    }
+                  }
+                }
+                if (!parsedDateStr) {
+                  const parsed = new Date(s);
+                  if (!isNaN(parsed.getTime())) parsedDateStr = toLocalDateStr(parsed);
+                }
+              }
+              if (parsedDateStr) d = parsedDateStr;
             }
             obj[f.key] = d || todayStr();
           } else obj[f.key] = val || (f.default||'');
@@ -4284,7 +4319,7 @@ function handleBulkImport(entityType, evt) {
             obj._action = obj._existingId ? 'update' : 'add';
             rows.push(obj);
           } else if (entityType === 'sales') {
-            if (!obj.unitPrice && !obj.total) { return; }
+            if (!obj.unitPrice && !obj.total) { continue; }
             // Resolve product by SKU
             let prod = null;
             if (obj.sku) prod = db.products.find(p => p.sku.toLowerCase()===obj.sku.toLowerCase());
@@ -4300,13 +4335,13 @@ function handleBulkImport(entityType, evt) {
             obj._action = obj._existingId ? 'update' : 'add';
             rows.push(obj);
           } else if (entityType === 'expenses') {
-            if (!obj.amount || obj.amount<=0) return;
+            if (!obj.amount || obj.amount<=0) continue;
             const dup = db.expenses.find(e => e.date===obj.date && Math.abs(e.amount-obj.amount)<0.01 && (e.description||'')===obj.description);
             obj._existingId = dup ? dup.id : null;
             obj._action = dup ? 'update' : 'add';
             rows.push(obj);
           } else if (entityType === 'customers') {
-            if (!obj.name || !obj.phone) return;
+            if (!obj.name || !obj.phone) continue;
             const phoneDigits = obj.phone.replace(/\D/g,'');
             const dup = db.sales.find(s => s.phone && s.phone.replace(/\D/g,'')===phoneDigits);
             obj._phoneDigits = phoneDigits;
@@ -4314,7 +4349,7 @@ function handleBulkImport(entityType, evt) {
             obj._action = 'add';
             rows.push(obj);
           } else if (entityType === 'suppliers') {
-            if (!obj.name || !obj.phone) return;
+            if (!obj.name || !obj.phone) continue;
             const phoneDigits = obj.phone.replace(/\D/g,'');
             const dup = db.suppliers.find(s => s.phone && s.phone.replace(/\D/g,'')===phoneDigits);
             obj._existingId = dup ? dup.id : null;
@@ -5662,10 +5697,36 @@ function handleCustomOrderImport(evt) {
       const statusIdx = idxOf(['status']);
 
       let added=0, skipped=0;
+      function parseAnyDate(v) {
+        if (!v) return todayStr();
+        if (v instanceof Date) return toLocalDateStr(v);
+        if (typeof v === 'number' && v>1000 && v<100000) {
+          const base = new Date(1899,11,30);
+          base.setDate(base.getDate()+Math.floor(v));
+          return toLocalDateStr(base);
+        }
+        const s = String(v).trim();
+        let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+        if (m) {
+          const y=+m[1], mo=+m[2], da=+m[3];
+          if (mo>=1&&mo<=12&&da>=1&&da<=31) return toLocalDateStr(new Date(y, mo-1, da));
+        }
+        m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+        if (m) {
+          let a=+m[1], b=+m[2], c=+m[3];
+          if (c<100) c+=2000;
+          if (b>=1&&b<=12&&a>=1&&a<=31) return toLocalDateStr(new Date(c, b-1, a));
+          if (a>=1&&a<=12&&b>=1&&b<=31) return toLocalDateStr(new Date(c, a-1, b));
+        }
+        const parsed = new Date(s);
+        if (!isNaN(parsed.getTime())) return toLocalDateStr(parsed);
+        return todayStr();
+      }
       for (let i=1;i<json.length;i++) {
         const r=json[i];
         if (!r || r.every(v=>v===''||v===null)) continue;
-        const date = dateIdx>=0 ? (r[dateIdx]||todayStr()) : todayStr();
+        const rawDate = dateIdx>=0 ? r[dateIdx] : '';
+        const date = parseAnyDate(rawDate);
         const customer = custIdx>=0 ? String(r[custIdx]||'').trim() : '';
         const phone = phoneIdx>=0 ? String(r[phoneIdx]||'').trim() : '';
         const size = sizeIdx>=0 ? String(r[sizeIdx]||'').trim() : '';
