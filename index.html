@@ -1254,6 +1254,25 @@ const todayStr = () => {
   const day = String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 };
+function toLocalDateStr(d) {
+  try {
+    const date = d instanceof Date ? d : new Date(d);
+    if (isNaN(date.getTime())) return todayStr();
+    const y = date.getFullYear();
+    const m = String(date.getMonth()+1).padStart(2,'0');
+    const day = String(date.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  } catch(e) { return todayStr(); }
+}
+function toLocalMonthStr(d) {
+  try {
+    const date = d instanceof Date ? d : new Date(d);
+    if (isNaN(date.getTime())) return todayStr().slice(0,7);
+    const y = date.getFullYear();
+    const m = String(date.getMonth()+1).padStart(2,'0');
+    return `${y}-${m}`;
+  } catch(e) { return todayStr().slice(0,7); }
+}
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const slug = s => (s||'').toString().trim().toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'');
 const esc = s => (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2600,12 +2619,12 @@ function toggleDashDates() {
   document.getElementById('dashFromWrap').style.display  = v==='range' ? '' : 'none';
   document.getElementById('dashToWrap').style.display    = v==='range' ? '' : 'none';
   if (v==='thismonth') {
-    const d = new Date(); const m = d.toISOString().slice(0,7);
+    const d = new Date(); const m = toLocalMonthStr(d);
     document.getElementById('dashMonth').value = m;
   }
   if (v==='lastmonth') {
     const d = new Date(); d.setMonth(d.getMonth()-1);
-    document.getElementById('dashMonth').value = d.toISOString().slice(0,7);
+    document.getElementById('dashMonth').value = toLocalMonthStr(d);
     document.getElementById('dashPeriod').value = 'month';
     document.getElementById('dashMonthWrap').style.display='';
   }
@@ -4166,7 +4185,7 @@ function handleBulkImport(entityType, evt) {
             let d = val;
             if (val) {
               const parsed = new Date(val);
-              if (!isNaN(parsed.getTime())) d = parsed.toISOString().slice(0,10);
+              if (!isNaN(parsed.getTime())) d = toLocalDateStr(parsed);
             }
             obj[f.key] = d || todayStr();
           } else obj[f.key] = val || (f.default||'');
@@ -5669,7 +5688,7 @@ function handleCustomOrderImport(evt) {
 
         const order = {
           id: uid(),
-          date: (new Date(date).toISOString().slice(0,10) || todayStr()),
+          date: (toLocalDateStr(date) || todayStr()),
           customerName: customer,
           phone,
           size,
@@ -5736,7 +5755,7 @@ function renderDashboard() {
   const opExps = filteredExp.filter(e=>e.category!=='Stock Purchase').reduce((s,x)=>s+x.amount,0);
   const netProfit = grossProfit-opExps;
   const stockValue = db.products.reduce((s,p)=>s+p.stock*p.cost,0);
-  const totalUnits = filteredSales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty,0);
+  const totalUnits = filteredSales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty,0) + filteredCo.filter(o=>o.status==='completed').length;
   const lowStock = db.products.filter(p=>p.stock<=p.reorder);
 
   const totalPurch = db.purchases.reduce((s,p)=>s+p.total,0) + db.suppliers.reduce((s,sup)=>s+(sup.opening||0),0);
