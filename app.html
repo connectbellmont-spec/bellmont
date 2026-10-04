@@ -1247,7 +1247,13 @@ function saveDB() {
 
 // ===================== UTIL =====================
 const fmt = n => '₹' + (Number(n)||0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+};
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const slug = s => (s||'').toString().trim().toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'');
 const esc = s => (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1938,7 +1944,7 @@ function renderSales() {
 // ===================== CUSTOMERS =====================
 function getCustomerData() {
   const m={};
-  db.sales.forEach(s=>{
+  db.sales.filter(s=>!s.returned).forEach(s=>{
     const k=(s.phone&&s.phone.trim())?`phone:${s.phone.trim()}`:`name:${(s.customer||'Walk-in').toLowerCase()}`;
     if(!m[k]) m[k]={name:s.customer||'Walk-in',phone:s.phone||'',purchases:0,total:0,last:s.date};
     if(!m[k].phone&&s.phone) m[k].phone=s.phone;
@@ -2353,13 +2359,13 @@ function renderSuppliers() {
 
 // ===================== DASHBOARD =====================
 function renderDashboard() {
-  const totalRevenue = db.sales.reduce((s,x)=>s+x.total,0);
-  const totalCOGS = db.sales.reduce((s,x)=>s+x.qty*x.unitCost,0);
+  const totalRevenue = db.sales.filter(s=>!s.returned).reduce((s,x)=>s+x.total,0);
+  const totalCOGS = db.sales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty*x.unitCost,0);
   const grossProfit = totalRevenue-totalCOGS;
   const opExps = db.expenses.filter(e=>e.category!=='Stock Purchase').reduce((s,x)=>s+x.amount,0);
   const netProfit = grossProfit-opExps;
   const stockValue = db.products.reduce((s,p)=>s+p.stock*p.cost,0);
-  const totalUnits = db.sales.reduce((s,x)=>s+x.qty,0);
+  const totalUnits = db.sales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty,0);
   const lowStock = db.products.filter(p=>p.stock<=p.reorder);
   const custCount = getCustomerData().length;
 
@@ -2383,7 +2389,7 @@ function renderDashboard() {
   `;
 
   const prodSales = {};
-  db.sales.forEach(s=>{
+  db.sales.filter(s=>!s.returned).forEach(s=>{
     if(!prodSales[s.productId]) prodSales[s.productId]={name:s.productName,qty:0,rev:0};
     prodSales[s.productId].qty+=s.qty; prodSales[s.productId].rev+=s.total;
   });
@@ -2418,8 +2424,8 @@ function renderDashboard() {
 
 // ===================== REPORTS =====================
 function renderReports() {
-  const totalRevenue = db.sales.reduce((s,x)=>s+x.total,0);
-  const totalCOGS = db.sales.reduce((s,x)=>s+x.qty*x.unitCost,0);
+  const totalRevenue = db.sales.filter(s=>!s.returned).reduce((s,x)=>s+x.total,0);
+  const totalCOGS = db.sales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty*x.unitCost,0);
   const grossProfit = totalRevenue-totalCOGS;
   const opExps = db.expenses.filter(e=>e.category!=='Stock Purchase').reduce((s,x)=>s+x.amount,0);
   const netProfit = grossProfit-opExps;
@@ -2436,7 +2442,7 @@ function renderReports() {
     </table>`;
 
   const catMap = {};
-  db.sales.forEach(s=>{
+  db.sales.filter(s=>!s.returned).forEach(s=>{
     const c = s.category||'Uncategorized';
     if (!catMap[c]) catMap[c] = {units:0,rev:0,cogs:0};
     catMap[c].units+=s.qty; catMap[c].rev+=s.total; catMap[c].cogs+=s.qty*s.unitCost;
@@ -2447,7 +2453,7 @@ function renderReports() {
     : '<tr><td colspan="6"><div class="empty-state">No sales data</div></td></tr>';
 
   const pp = {};
-  db.sales.forEach(s=>{
+  db.sales.filter(s=>!s.returned).forEach(s=>{
     if(!pp[s.productId]) pp[s.productId] = {id:s.productId,name:s.productName,cat:s.category||'—',units:0,rev:0,cogs:0};
     pp[s.productId].units+=s.qty; pp[s.productId].rev+=s.total; pp[s.productId].cogs+=s.qty*s.unitCost;
   });
@@ -2469,7 +2475,7 @@ function renderReports() {
     : '<tr><td colspan="6"><div class="empty-state">No suppliers registered.</div></td></tr>';
 
   const monthly = {};
-  db.sales.forEach(s=>{
+  db.sales.filter(s=>!s.returned).forEach(s=>{
     const m=s.date.slice(0,7); if(!monthly[m]) monthly[m]={rev:0,profit:0};
     monthly[m].rev+=s.total; monthly[m].profit+=s.profit;
   });
@@ -2625,7 +2631,11 @@ function getDashDateRange() {
   } else if (p==='range') {
     from = document.getElementById('dashFrom').value || null;
     to = document.getElementById('dashTo').value || null;
-    label = (from||'?') + ' → ' + (to||'?');
+    if (from && to && from===to) {
+      label = `Day: ${from}`;
+    } else {
+      label = (from||'?') + ' → ' + (to||'?');
+    }
   } else if (p==='thismonth' || p==='lastmonth') {
     const d = new Date();
     if (p==='lastmonth') d.setMonth(d.getMonth()-1);
@@ -2635,7 +2645,8 @@ function getDashDateRange() {
     to = `${y}-${String(m).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
     label = p==='thismonth' ? 'This Month' : 'Last Month';
   }
-  document.getElementById('dashRangeLabel').textContent = 'Showing: ' + label;
+  const labelEl = document.getElementById('dashRangeLabel');
+  if (labelEl) labelEl.textContent = 'Showing: ' + label;
   return { from, to };
 }
 
@@ -4616,7 +4627,7 @@ let selectedCust = new Set();
 
 function getCustomerData() {
   const m={};
-  db.sales.forEach(s=>{
+  db.sales.filter(s=>!s.returned).forEach(s=>{
     const phoneDigits = (s.phone||'').replace(/\D/g,'');
     const k = phoneDigits ? `phone:${phoneDigits}` : `name:${(s.customer||'Walk-in').toLowerCase()}`;
     if(!m[k]) m[k]={id: `sale_${k}`, name:s.customer||'Walk-in', phone:s.phone||'', phoneDigits, purchases:0, total:0, last:s.date, email:'', city:'', notes:'', source:'sale', patronId:null};
@@ -5690,11 +5701,11 @@ function renderDashboard() {
     filteredCo = db.customOrders.filter(o => (!from || o.date >= from) && (!to || o.date <= to));
   }
 
-  const totalRevenueSales = filteredSales.reduce((s,x)=>s+x.total,0);
+  const totalRevenueSales = filteredSales.filter(s=>!s.returned).reduce((s,x)=>s+x.total,0);
   const totalRevenueCustom = filteredCo.filter(o=>o.status==='completed').reduce((s,o)=>s+o.totalSale,0);
   const totalRevenue = totalRevenueSales + totalRevenueCustom;
 
-  const totalCOGSSales = filteredSales.reduce((s,x)=>s+x.qty*x.unitCost,0);
+  const totalCOGSSales = filteredSales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty*x.unitCost,0);
   const totalCOGSCustom = filteredCo.filter(o=>o.status==='completed').reduce((s,o)=>s+o.vendorCost,0);
   const totalCOGS = totalCOGSSales + totalCOGSCustom;
 
@@ -5702,7 +5713,7 @@ function renderDashboard() {
   const opExps = filteredExp.filter(e=>e.category!=='Stock Purchase').reduce((s,x)=>s+x.amount,0);
   const netProfit = grossProfit-opExps;
   const stockValue = db.products.reduce((s,p)=>s+p.stock*p.cost,0);
-  const totalUnits = filteredSales.reduce((s,x)=>s+x.qty,0);
+  const totalUnits = filteredSales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty,0);
   const lowStock = db.products.filter(p=>p.stock<=p.reorder);
 
   const totalPurch = db.purchases.reduce((s,p)=>s+p.total,0) + db.suppliers.reduce((s,sup)=>s+(sup.opening||0),0);
@@ -5731,7 +5742,7 @@ function renderDashboard() {
   }
 
   const prodSales = {};
-  filteredSales.forEach(s=>{
+  filteredSales.filter(s=>!s.returned).forEach(s=>{
     if(!prodSales[s.productId]) prodSales[s.productId]={name:s.productName,qty:0,rev:0};
     prodSales[s.productId].qty+=s.qty; prodSales[s.productId].rev+=s.total;
   });
