@@ -516,6 +516,10 @@
         <div id="lowStockList"></div>
       </div>
       <div class="panel">
+        <div class="panel-title"><span class="ornament">📊</span>Daily Sales Verification (Accurate Count)</div>
+        <div id="dailySalesBreakdown"></div>
+      </div>
+      <div class="panel">
         <div class="panel-title"><span class="ornament">📋</span>Arrears to Settle</div>
         <div id="arrearsList"></div>
       </div>
@@ -5769,10 +5773,11 @@ function renderDashboard() {
   const coCompleted = filteredCo.filter(o=>o.status==='completed').length;
   const coSales = totalRevenueCustom;
 
+  const salesQty = filteredSales.filter(s=>!s.returned).reduce((s,x)=>s+x.qty,0);
   const kpiGrid = document.getElementById('kpiGrid');
   if (kpiGrid) {
     kpiGrid.innerHTML = `
-      <div class="kpi-card green"><div class="kpi-label">Total Revenue</div><div class="kpi-value">${fmt(totalRevenue)}</div><div class="kpi-sub">${totalUnits} pairs + ${coCompleted} custom delivered</div></div>
+      <div class="kpi-card green"><div class="kpi-label">Total Revenue</div><div class="kpi-value">${fmt(totalRevenue)}</div><div class="kpi-sub">${totalUnits} pairs (${salesQty} sales + ${coCompleted} custom)</div></div>
       <div class="kpi-card gold"><div class="kpi-label">Gross Profit</div><div class="kpi-value profit-pos">${fmt(grossProfit)}</div><div class="kpi-sub">COGS: ${fmt(totalCOGS)}</div></div>
       <div class="kpi-card"><div class="kpi-label">Operating Expenses</div><div class="kpi-value">${fmt(opExps)}</div><div class="kpi-sub">Atelier overhead</div></div>
       <div class="kpi-card ${netProfit>=0?'green':'red'}"><div class="kpi-label">Net Profit</div><div class="kpi-value ${netProfit>=0?'profit-pos':'profit-neg'}">${fmt(netProfit)}</div><div class="kpi-sub">${totalRevenue>0?((netProfit/totalRevenue)*100).toFixed(1):0}% margin</div></div>
@@ -5815,6 +5820,36 @@ function renderDashboard() {
          <div class="table-wrap"><table style="font-size:12px;"><tr><th style="padding:8px">Pair</th><th style="padding:8px">Photo</th><th style="padding:8px">Stock</th><th style="padding:8px"></th></tr>
          ${lowStock.slice(0,8).map(p=>`<tr><td style="padding:8px">${esc(p.brand)} ${esc(p.model)} (${esc(p.size)}, ${esc(p.color)})</td><td style="padding:8px">${typeof thumbHTML==='function'?thumbHTML(p,32):'👞'}</td><td style="padding:8px">${p.stock}/${p.reorder}</td><td style="padding:8px"><button class="btn btn-green btn-xs" onclick="switchTab('inventory',document.querySelectorAll('.tab')[1]);setTimeout(()=>restockProduct('${p.id}'),400)">+ Restock</button></td></tr>`).join('')}${lowStock.length>8?`<tr><td colspan="4" style="padding:10px;text-align:center;font-style:italic;color:var(--muted)">…and ${lowStock.length-8} more — view Inventory tab for full list</td></tr>`:''}</table></div>`
       : '<div class="empty-state">✦ The cellar is well-stocked.</div>';
+  }
+
+  // Daily sales breakdown for accurate accounting (e.g., 3rd Sep 11 pairs)
+  const dailySalesEl = document.getElementById('dailySalesBreakdown');
+  if (dailySalesEl) {
+    const salesForDay = filteredSales.filter(s=>!s.returned);
+    const grossSales = db.sales.filter(s=>{
+      const d=(s.date||'').slice(0,10);
+      return (!from||d>=from)&&(!to||d<=to);
+    });
+    const returnedForDay = db.sales.filter(s=>{
+      const d=(s.date||'').slice(0,10);
+      return s.returned && (!from||d>=from)&&(!to||d<=to);
+    });
+    const totalQtyGross = grossSales.reduce((s,x)=>s+x.qty,0);
+    const totalQtyNet = salesForDay.reduce((s,x)=>s+x.qty,0);
+    const totalRevGross = grossSales.reduce((s,x)=>s+x.total,0);
+    const totalRevNet = salesForDay.reduce((s,x)=>s+x.total,0);
+    dailySalesEl.innerHTML = `
+      <div class="alert alert-info sans" style="margin-bottom:10px;">
+        <strong>📊 Accurate count for selected period:</strong><br>
+        Gross: ${grossSales.length} invoices, ${totalQtyGross} pairs, ${fmt(totalRevGross)}<br>
+        Net (excluding returned): ${salesForDay.length} invoices, ${totalQtyNet} pairs + ${coCompleted} custom = ${totalUnits} total pairs, ${fmt(totalRevenueSales)} sales revenue<br>
+        ${returnedForDay.length>0?`Returned: ${returnedForDay.length} invoices, ${returnedForDay.reduce((s,x)=>s+x.qty,0)} pairs`:''}
+      </div>
+      <div class="table-wrap"><table style="font-size:11px;"><tr><th>Date</th><th>Invoice</th><th>Pair</th><th>Qty</th><th>Total</th><th>Customer</th><th>Status</th></tr>
+      ${grossSales.slice(0,50).map(s=>`<tr style="${s.returned?'background:#fbe5e5;':''}"><td>${s.date}</td><td>${esc(s.invoiceNo||'')}</td><td>${esc(s.productName)}</td><td>${s.qty}</td><td>${fmt(s.total)}</td><td>${esc(s.customer)}</td><td>${s.returned?'Returned':'OK'}</td></tr>`).join('')}
+      ${grossSales.length>50?`<tr><td colspan="7" style="text-align:center;font-style:italic;">...and ${grossSales.length-50} more</td></tr>`:''}
+      </table></div>
+    `;
   }
 
   const arrearsEl = document.getElementById('arrearsList');
