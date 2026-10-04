@@ -2972,8 +2972,14 @@ renderDashboard = function() {
   if (from || to) {
     const origSales = db.sales;
     const origExp = db.expenses;
-    db.sales = origSales.filter(s => (!from || s.date >= from) && (!to || s.date <= to));
-    db.expenses = origExp.filter(e => (!from || e.date >= from) && (!to || e.date <= to));
+    db.sales = origSales.filter(s => {
+      const d = (s.date||'').slice(0,10);
+      return (!from || d >= from) && (!to || d <= to);
+    });
+    db.expenses = origExp.filter(e => {
+      const d = (e.date||'').slice(0,10);
+      return (!from || d >= from) && (!to || d <= to);
+    });
     _origRenderDashboard();
     db.sales = origSales; db.expenses = origExp;
     // update KPIs title
@@ -5218,15 +5224,23 @@ function renderExpenses() {
   const searchFilter = (document.getElementById('expFilterSearch')?.value||'').toLowerCase();
 
   let ex=db.expenses.slice().sort((a,b)=>b.date.localeCompare(a.date));
-  if (monthFilter) ex = ex.filter(e=>e.date.slice(0,7)===monthFilter);
-  if (fromFilter) ex = ex.filter(e=>e.date>=fromFilter);
-  if (toFilter) ex = ex.filter(e=>e.date<=toFilter);
+  if (monthFilter) ex = ex.filter(e=>(e.date||'').slice(0,7)===monthFilter);
+  if (fromFilter) ex = ex.filter(e=>(e.date||'').slice(0,10)>=fromFilter);
+  if (toFilter) ex = ex.filter(e=>(e.date||'').slice(0,10)<=toFilter);
   if (catFilter) ex = ex.filter(e=>e.category===catFilter);
   if (searchFilter) ex = ex.filter(e=>(e.description||'').toLowerCase().includes(searchFilter) || e.category.toLowerCase().includes(searchFilter));
 
   const totalFiltered = ex.reduce((s,e)=>s+e.amount,0);
+  const opFiltered = ex.filter(e=>e.category!=='Stock Purchase').reduce((s,e)=>s+e.amount,0);
+  const stockFiltered = ex.filter(e=>e.category==='Stock Purchase').reduce((s,e)=>s+e.amount,0);
   const totalEl = document.getElementById('expTotalFiltered');
-  if (totalEl) totalEl.textContent = `Total: ${fmt(totalFiltered)} (${ex.length} entries)`;
+  if (totalEl) {
+    if (stockFiltered>0.01) {
+      totalEl.textContent = `Operating: ${fmt(opFiltered)} | Stock Purchase: ${fmt(stockFiltered)} | Total: ${fmt(totalFiltered)} (${ex.length} entries)`;
+    } else {
+      totalEl.textContent = `Total: ${fmt(totalFiltered)} (${ex.length} entries) - Operating: ${fmt(opFiltered)}`;
+    }
+  }
 
   if (!ex.length) { tbody.innerHTML=`<tr><td colspan="6"><div class="empty-state"><div class="icon">📒</div>No expenses match filter.</div></td></tr>`; updateExpBulkBar(); return; }
   tbody.innerHTML=ex.map(e=>{
@@ -5696,9 +5710,18 @@ function renderDashboard() {
   const from = range.from, to = range.to;
   let filteredSales = db.sales, filteredExp = db.expenses, filteredCo = db.customOrders;
   if (from || to) {
-    filteredSales = db.sales.filter(s => (!from || s.date >= from) && (!to || s.date <= to));
-    filteredExp = db.expenses.filter(e => (!from || e.date >= from) && (!to || e.date <= to));
-    filteredCo = db.customOrders.filter(o => (!from || o.date >= from) && (!to || o.date <= to));
+    filteredSales = db.sales.filter(s => {
+      const d = (s.date||'').slice(0,10);
+      return (!from || d >= from) && (!to || d <= to);
+    });
+    filteredExp = db.expenses.filter(e => {
+      const d = (e.date||'').slice(0,10);
+      return (!from || d >= from) && (!to || d <= to);
+    });
+    filteredCo = db.customOrders.filter(o => {
+      const d = (o.date||'').slice(0,10);
+      return (!from || d >= from) && (!to || d <= to);
+    });
   }
 
   const totalRevenueSales = filteredSales.filter(s=>!s.returned).reduce((s,x)=>s+x.total,0);
