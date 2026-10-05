@@ -518,6 +518,7 @@
       <div class="panel">
         <div class="panel-title"><span class="ornament">📊</span>Daily Sales Verification (Accurate Count)</div>
         <div id="dailySalesBreakdown"></div>
+        <div id="dataHealthInfo" style="margin-top:12px;"></div>
       </div>
       <div class="panel">
         <div class="panel-title"><span class="ornament">📋</span>Arrears to Settle</div>
@@ -1243,10 +1244,33 @@ function loadDB() {
   });
 }
 function saveDB() {
-  try { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
-  catch(e) {
-    if (e.name === 'QuotaExceededError') alert('⚠ Storage full. Export your data and consider reducing product photos.');
+  try {
+    const dataStr = JSON.stringify(db);
+    // Auto backup every 10 saves or if size large
+    if (!window._saveCount) window._saveCount = 0;
+    window._saveCount++;
+    if (window._saveCount % 10 === 0) {
+      try { localStorage.setItem(DB_KEY + '_backup_' + todayStr(), dataStr.slice(0, 4000000)); } catch(e) {}
+    }
+    localStorage.setItem(DB_KEY, dataStr);
+    // Store last save time
+    try { localStorage.setItem(DB_KEY + '_lastSave', new Date().toISOString()); } catch(e) {}
   }
+  catch(e) {
+    if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
+      alert('⚠ Storage full! Your data is too large (likely product photos).\n\n1. Go to Reports → Export All Data immediately\n2. Delete old product photos\n3. Try again\n\nEntries may not save until space is freed.');
+      console.error('Quota exceeded', e);
+    } else {
+      console.error('saveDB failed', e);
+    }
+  }
+}
+function getLastSaveInfo() {
+  try {
+    const last = localStorage.getItem(DB_KEY + '_lastSave');
+    const size = (localStorage.getItem(DB_KEY)||'').length;
+    return { last, sizeKB: Math.round(size/1024) };
+  } catch(e) { return { last: null, sizeKB: 0 }; }
 }
 
 // ===================== UTIL =====================
@@ -2724,9 +2748,11 @@ document.addEventListener('change', e => {
 
 // ---------- OVERRIDE recordSale() ----------
 function generateInvoiceNo() {
-  const count = db.sales.length + 1;
   const y = new Date().getFullYear();
-  return `BM/${y}/${String(count).padStart(5,'0')}`;
+  const ts = Date.now().toString(36).toUpperCase();
+  const rnd = Math.random().toString(36).substr(2,3).toUpperCase();
+  // Use timestamp + random to guarantee uniqueness even after deletions/imports
+  return `BM/${y}/${ts}-${rnd}`;
 }
 function buildSaleInvoiceHTML(sale) {
   const prod = db.products.find(p=>p.id===sale.productId);
@@ -4311,7 +4337,7 @@ function handleBulkImport(entityType, evt) {
             if (!obj.sell && obj.cost>0) obj.sell = Math.round(obj.cost*2.2);
             // Batch dedup key
             const batchKey = `${(obj.brand||'').toLowerCase()}|${(obj.model||'').toLowerCase()}|${obj.size.toLowerCase()}|${(obj.color||'').toLowerCase()}`;
-            if (batchSeen.has(batchKey)) { skippedProd.dupInFile++; return; }
+            if (batchSeen.has(batchKey)) { skippedProd.dupInFile++; continue; }
             batchSeen.add(batchKey);
             const dup = db.products.find(p => p.sku && obj.sku && p.sku.toLowerCase()===obj.sku.toLowerCase());
             obj._existingId = dup ? dup.id : null;
@@ -4325,7 +4351,7 @@ function handleBulkImport(entityType, evt) {
             if (obj.sku) prod = db.products.find(p => p.sku.toLowerCase()===obj.sku.toLowerCase());
             // Auto-calc total
             if (!obj.total || obj.total===0) obj.total = Math.max(0, obj.qty*obj.unitPrice - (obj.discount||0) + (obj.delivery||0));
-            if (!obj.invoiceNo) obj.invoiceNo = 'IMP-' + todayStr().replace(/-/g,'') + '-' + String(rows.length+1).padStart(3,'0');
+            if (!obj.invoiceNo) obj.invoiceNo = 'IMP-' + todayStr().replace(/-/g,'') + '-' + Date.now().toString(36).toUpperCase() + '-' + String(rows.length+1).padStart(3,'0') + '-' + Math.random().toString(36).substr(2,3).toUpperCase();
             if (!obj.unitCost && prod) obj.unitCost = prod.cost;
             if (!obj.productName && prod) obj.productName = `${prod.brand} ${prod.model} ${prod.size} ${prod.color}`;
             if (!obj.category && prod) obj.category = prod.category;
@@ -4544,7 +4570,8 @@ function confirmBulkImport() {
       }
     }
     else if (entityType === 'sales') {
-      if ((!r.qty||r.qty<1) || (!r.unitPrice||r.unitPrice<=0)) { skipped++; return; }
+      if (!r.qty||r.qty<1) { skipped++; return; }
+      if ((!r.unitPrice||r.unitPrice<=0) && (!r.total||r.total<=0)) { skipped++; return; }
       if (!r.total) r.total = Math.max(0, r.qty*r.unitPrice - (r.discount||0) + (r.delivery||0));
       let prod = r.productId ? db.products.find(p=>p.id===r.productId) : (r.sku?db.products.find(p=>p.sku.toLowerCase()===r.sku.toLowerCase()):null);
       // If product not found by SKU, try fuzzy match by name
@@ -5910,6 +5937,23 @@ function renderDashboard() {
       ${grossSales.slice(0,50).map(s=>`<tr style="${s.returned?'background:#fbe5e5;':''}"><td>${s.date}</td><td>${esc(s.invoiceNo||'')}</td><td>${esc(s.productName)}</td><td>${s.qty}</td><td>${fmt(s.total)}</td><td>${esc(s.customer)}</td><td>${s.returned?'Returned':'OK'}</td></tr>`).join('')}
       ${grossSales.length>50?`<tr><td colspan="7" style="text-align:center;font-style:italic;">...and ${grossSales.length-50} more</td></tr>`:''}
       </table></div>
+    `;
+  }
+
+
+  const healthEl = document.getElementById('dataHealthInfo');
+  if (healthEl) {
+    const info = typeof getLastSaveInfo === 'function' ? getLastSaveInfo() : { last: null, sizeKB: 0 };
+    const salesCount = db.sales.length;
+    const expCount = db.expenses.length;
+    const prodCount = db.products.length;
+    const lastSalesDate = db.sales.length ? db.sales.slice().sort((a,b)=>b.date.localeCompare(a.date))[0].date : '—';
+    healthEl.innerHTML = `
+      <div class="alert alert-info sans" style="font-size:11px;line-height:1.5;">
+        <strong>🔒 Data Health:</strong> ${salesCount} sales, ${expCount} expenses, ${prodCount} products<br>
+        Last sale: ${lastSalesDate} | Last save: ${info.last ? new Date(info.last).toLocaleString() : '—'} | Size: ${info.sizeKB} KB<br>
+        ${info.sizeKB > 4000 ? '<span style="color:#b91c1c;font-weight:bold;">⚠ Storage almost full - Export backup now!</span>' : 'Storage OK'}
+      </div>
     `;
   }
 
