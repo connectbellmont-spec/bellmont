@@ -197,6 +197,28 @@
   .form-grid input, .form-grid select, .form-group input, .form-group select { min-width: 0; width: 100%; box-sizing: border-box; }
   .sales-filter-grid { display: grid; grid-template-columns: 1fr 180px 180px; gap: 14px; margin-bottom: 12px; align-items: end; }
   .sales-filter-grid-2 { display: grid; grid-template-columns: 220px 200px 200px auto; gap: 14px; margin-bottom: 16px; align-items: end; }
+  /* Record a Sale - luxury atelier layout */
+  .sale-record-grid { display: grid; grid-template-columns: 160px 200px 1fr 110px; gap: 16px; margin-bottom: 16px; align-items: end; }
+  .sale-record-grid-2 { display: grid; grid-template-columns: 160px 130px 1fr 220px; gap: 16px; margin-bottom: 16px; align-items: end; }
+  .sale-record-grid-3 { display: grid; grid-template-columns: 220px 1fr 360px; gap: 16px; margin-bottom: 16px; align-items: end; }
+  .sale-record-grid .form-group, .sale-record-grid-2 .form-group, .sale-record-grid-3 .form-group { margin-bottom: 0; }
+  .sale-record-grid input, .sale-record-grid select,
+  .sale-record-grid-2 input, .sale-record-grid-2 select,
+  .sale-record-grid-3 input, .sale-record-grid-3 select { height: 42px; font-size: 13px; }
+  .sale-pair-search { position: relative; }
+  .sale-pair-search input { height: 44px; font-size: 14px; font-weight: 500; padding-right: 36px; border: 1.5px solid var(--gold-500); background: #fffdf7; }
+  .sale-pair-search input:focus { border-color: var(--green-800); box-shadow: 0 0 0 3px rgba(122,79,25,0.1); }
+  @media (max-width: 1100px) {
+    .sale-record-grid { grid-template-columns: 140px 180px 1fr 100px; }
+    .sale-record-grid-2 { grid-template-columns: 140px 120px 1fr 200px; }
+    .sale-record-grid-3 { grid-template-columns: 1fr 360px; }
+  }
+  @media (max-width: 900px) {
+    .sale-record-grid, .sale-record-grid-2, .sale-record-grid-3 { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .sale-record-grid, .sale-record-grid-2, .sale-record-grid-3 { grid-template-columns: 1fr; }
+  }
   @media (max-width: 900px) {
     .sales-filter-grid { grid-template-columns: 1fr; }
     .sales-filter-grid-2 { grid-template-columns: 1fr 1fr; }
@@ -699,29 +721,39 @@
   <div id="sales" class="tab-content">
     <h2 class="page-title">Sales Ledger</h2>
     <p class="page-sub">Every transaction chronicled — in-store & online, with delivery & returns</p>
-    <div class="panel">
-      <div class="panel-title"><span class="ornament">◆</span>Record a Sale</div>
-      <div class="form-grid">
-        <div class="form-group"><label>Date</label><input type="date" id="saleDate"></div>
+    <div class="panel" style="border:1.5px solid var(--gold-300);">
+      <div class="panel-title"><span class="ornament">◆</span>Record a Sale <span style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);margin-left:10px;">— Crafted transaction entry</span></div>
+      
+      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;">
+        <span class="badge badge-gold" style="font-size:10px;">Step 1: Select Pair</span>
+        <span class="badge badge-ok" style="font-size:10px;">Step 2: Customer</span>
+        <span class="badge" style="font-size:10px;background:#f5efe0;border:1px solid var(--line);">Step 3: Bill & WhatsApp</span>
+      </div>
+
+      <div class="sale-record-grid">
+        <div class="form-group"><label>📅 Date</label><input type="date" id="saleDate"></div>
         <div class="form-group">
-          <label>Order Type</label>
+          <label>🏬 Order Type</label>
           <select id="saleOrderType" onchange="toggleOrderFields()">
             <option value="offline">🏬 Walk-in / Offline</option>
             <option value="online">📦 Online Order</option>
           </select>
         </div>
-        <div class="form-group" style="position:relative;"><label>Pair * — Search & Select</label>
-          <input type="text" id="saleProductSearch" placeholder="Type brand, model, SKU, size, color... (e.g. Oxford, UK-8, Black)" autocomplete="off" oninput="filterSaleProducts()" onfocus="showSaleProductDropdown()" style="padding-right:30px;">
-          <span style="position:absolute;right:10px;top:36px;color:var(--muted);pointer-events:none;">🔍</span>
+        <div class="form-group sale-pair-search" style="position:relative;"><label>👞 Pair * — Search & Select</label>
+          <input type="text" id="saleProductSearch" placeholder="Search brand, model, SKU, size, color... e.g. Scarface Suede, UK-8, Black" autocomplete="off" oninput="filterSaleProducts()" onfocus="showSaleProductDropdown()">
+          <span style="position:absolute;right:12px;top:38px;color:var(--gold-600);pointer-events:none;font-size:14px;">🔍</span>
           <input type="hidden" id="saleProduct">
-          <div id="saleProductDropdown" style="display:none;position:absolute;top:68px;left:0;right:0;max-height:300px;overflow-y:auto;background:var(--ivory);border:1px solid var(--gold-500);border-radius:6px;z-index:100;box-shadow:var(--shadow-lg);"></div>
-          <div id="saleProductSelected" style="margin-top:8px;font-size:11px;color:var(--green-800);font-family:sans-serif;min-height:18px;"></div>
+          <div id="saleProductDropdown" style="display:none;position:absolute;top:70px;left:0;right:0;max-height:320px;overflow-y:auto;background:#fffef9;border:1.5px solid var(--gold-500);border-radius:8px;z-index:100;box-shadow:0 12px 32px rgba(0,0,0,0.15);"></div>
+          <div id="saleProductSelected" style="margin-top:8px;font-size:11px;color:var(--green-800);font-family:sans-serif;min-height:18px;background:#fbf3e3;padding:6px 10px;border-radius:4px;display:none;"></div>
         </div>
-        <div class="form-group"><label>Quantity</label><input type="number" id="saleQty" min="1" value="1"></div>
-        <div class="form-group"><label>Unit Price (₹)</label><input type="number" id="salePrice" min="0" step="0.01" placeholder="Auto from inventory"></div>
-        <div class="form-group"><label>Discount (₹)</label><input type="number" id="saleDiscount" min="0" step="0.01" value="0" oninput="calcSaleTotal()"></div>
-        <div class="form-group"><label>Patron Name</label><input type="text" id="saleCustomer" placeholder="Walk-in / Gentleman's name" list="customerNames"><datalist id="customerNames"></datalist></div>
-        <div class="form-group"><label>Telephone * (for WhatsApp)</label><input type="tel" id="salePhone" placeholder="98765 43210"></div>
+        <div class="form-group"><label>🔢 Quantity</label><input type="number" id="saleQty" min="1" value="1" style="text-align:center;font-weight:700;"></div>
+      </div>
+
+      <div class="sale-record-grid-2">
+        <div class="form-group"><label>💰 Unit Price (₹)</label><input type="number" id="salePrice" min="0" step="0.01" placeholder="Auto from inventory"></div>
+        <div class="form-group"><label>🏷️ Discount (₹)</label><input type="number" id="saleDiscount" min="0" step="0.01" value="0" oninput="calcSaleTotal()"></div>
+        <div class="form-group"><label>👤 Patron Name</label><input type="text" id="saleCustomer" placeholder="Walk-in customer or gentleman's name" list="customerNames"><datalist id="customerNames"></datalist></div>
+        <div class="form-group"><label>📱 Telephone * (WhatsApp)</label><input type="tel" id="salePhone" placeholder="98765 43210"></div>
       </div>
 
       <!-- Online / delivery fields (hidden by default) -->
@@ -760,21 +792,31 @@
         </div>
       </div>
 
-      <div id="offlineFields">
-        <div class="form-grid">
-          <div class="form-group"><label>Payment Mode</label><select id="salePay"><option>Cash</option><option>UPI</option><option>Card</option></select></div>
+      <div class="sale-record-grid-3">
+        <div id="offlineFields">
+          <div class="form-group"><label>💳 Payment Mode</label><select id="salePay"><option>Cash</option><option>UPI</option><option>Card</option></select></div>
+        </div>
+        <div class="form-group">
+          <div style="font-size:10px;color:var(--muted);font-family:sans-serif;line-height:1.4;padding-top:4px;">
+            <strong>💡 Tip:</strong> Select pair first → price auto-fills from inventory<br>
+            Enter phone → bill sent via WhatsApp automatically
+          </div>
+        </div>
+        <div style="background:linear-gradient(135deg, var(--cream) 0%, #fbf3e3 100%);padding:16px 18px;border-radius:8px;border:1.5px solid var(--gold-300);box-shadow:0 2px 8px rgba(122,79,25,0.08);">
+          <div class="summary-row" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12px;"><span style="color:var(--muted);">Subtotal:</span><strong id="saleCalcSub">₹0.00</strong></div>
+          <div class="summary-row" id="saleDelRow" style="display:none;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12px;"><span style="color:var(--muted);">Delivery:</span><span id="saleCalcDel">₹0.00</span></div>
+          <div class="summary-row" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12px;"><span style="color:var(--muted);">Discount:</span><span id="saleCalcDisc" style="color:var(--danger);font-weight:700;">-₹0.00</span></div>
+          <div class="summary-row total" style="display:flex;justify-content:space-between;padding:10px 0 0 0;font-size:14px;font-weight:800;"><span style="color:var(--green-800);">Grand Total:</span><span id="saleCalcTotal" style="color:var(--green-800);font-size:16px;">₹0.00</span></div>
         </div>
       </div>
 
-      <div style="background:var(--cream);padding:14px;border-radius:6px;border:1px solid var(--line);margin-bottom:14px;max-width:360px;margin-left:auto;">
-        <div class="summary-row"><span>Subtotal:</span><strong id="saleCalcSub">₹0.00</strong></div>
-        <div class="summary-row" id="saleDelRow" style="display:none;"><span>Delivery:</span><span id="saleCalcDel">₹0.00</span></div>
-        <div class="summary-row"><span>Discount:</span><span id="saleCalcDisc" style="color:var(--danger)">-₹0.00</span></div>
-        <div class="summary-row total"><span>Grand Total:</span><span id="saleCalcTotal">₹0.00</span></div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px;padding-top:16px;border-top:1px solid var(--line);">
+        <button class="btn btn-gold" onclick="recordSale()" style="height:44px;padding:0 28px;font-size:14px;letter-spacing:0.5px;">✦ Record Sale & Send Bill</button>
+        <span style="font-size:11px; color:var(--muted); font-style:italic; font-family:sans-serif;line-height:1.4;">
+          💾 Saves sale · generates invoice · opens WhatsApp with bill<br>
+          <span style="font-size:10px;">Invoice: <span id="previewInvoiceNo" style="font-family:monospace;font-weight:700;">BM/2025/...</span></span>
+        </span>
       </div>
-
-      <button class="btn btn-gold" onclick="recordSale()">✦ Record Sale & Send Bill</button>
-      <span style="margin-left:12px; font-size:11px; color:var(--muted); font-style:italic; font-family:sans-serif;">💾 Saves sale · generates invoice · opens WhatsApp with bill (if phone entered)</span>
     </div>
 
     <div class="panel">
