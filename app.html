@@ -193,7 +193,17 @@
     padding-bottom: 12px; border-bottom: 1px solid var(--gold-500); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
   .panel-title .ornament { color: var(--gold-500); margin-right: 8px; }
 
-  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 16px; align-items: end; }
+  .form-grid input, .form-grid select, .form-group input, .form-group select { min-width: 0; width: 100%; box-sizing: border-box; }
+  .sales-filter-grid { display: grid; grid-template-columns: 1fr 180px 180px; gap: 14px; margin-bottom: 12px; align-items: end; }
+  .sales-filter-grid-2 { display: grid; grid-template-columns: 220px 200px 200px auto; gap: 14px; margin-bottom: 16px; align-items: end; }
+  @media (max-width: 900px) {
+    .sales-filter-grid { grid-template-columns: 1fr; }
+    .sales-filter-grid-2 { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .sales-filter-grid-2 { grid-template-columns: 1fr; }
+  }
   .form-group { display: flex; flex-direction: column; gap: 5px; }
   .form-group label { font-size: 10px; font-weight: 700; color: var(--green-800); text-transform: uppercase; letter-spacing: 1.5px; font-family: sans-serif; }
   input, select { padding: 9px 13px; border: 1px solid var(--line); border-radius: 4px; font-size: 14px; transition: all 0.2s; background: white; width: 100%; font-family: sans-serif; color: var(--ink); }
@@ -775,20 +785,23 @@
           <input type="file" id="salesImportFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBulkImport('sales',event)">
         </div>
       </div>
-      <div class="form-grid">
-        <div class="form-group" style="min-width:260px;flex:2;"><label>🔍 Search any shoe, customer, invoice</label><input type="text" id="searchSales" placeholder="e.g. Scarface, Boots, Loafer, Beige Suede, customer name, invoice, phone..." oninput="renderSales()"></div>
+      <div class="sales-filter-grid">
+        <div class="form-group"><label>🔍 Search any shoe, customer, invoice</label><input type="text" id="searchSales" placeholder="e.g. Scarface, Boots, Loafer, Beige Suede, customer, invoice, phone..." oninput="renderSales()"></div>
         <div class="form-group"><label>📅 From Date</label><input type="date" id="filterSaleFrom" onchange="renderSales()"></div>
         <div class="form-group"><label>📅 To Date</label><input type="date" id="filterSaleTo" onchange="renderSales()"></div>
+      </div>
+      <div class="sales-filter-grid-2">
         <div class="form-group"><label>⚡ Quick Dates</label>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn btn-outline btn-xs" onclick="setSaleDateToday()">Today</button>
             <button class="btn btn-outline btn-xs" onclick="setSaleDateYesterday()">Yesterday</button>
             <button class="btn btn-outline btn-xs" onclick="setSaleDateThisWeek()">This Week</button>
-            <button class="btn btn-outline btn-xs" onclick="clearSaleDateFilter()">↺ Reset Dates</button>
+            <button class="btn btn-outline btn-xs" onclick="clearSaleDateFilter()">↺ Reset</button>
           </div>
         </div>
         <div class="form-group"><label>Filter by Order Type</label><select id="filterOrderType" onchange="renderSales()"><option value="">All</option><option value="offline">🏬 Offline</option><option value="online">📦 Online</option></select></div>
         <div class="form-group"><label>Filter by Status</label><select id="filterSaleStatus" onchange="renderSales()"><option value="">All Status</option><option value="paid">Paid</option><option value="partial">Partial / COD Pending</option><option value="returned">Returned</option></select></div>
+        <div class="form-group"><label>&nbsp;</label><div style="font-size:10px;color:var(--muted);font-family:sans-serif;">Tip: Set From=To for single day sales</div></div>
       </div>
       <div id="saleFilteredSummary" style="margin:10px 0;padding:10px 14px;background:#fbf3e3;border:1px dashed #c9a86a;border-radius:6px;font-family:sans-serif;font-size:12px;display:none;"></div>
       <div class="table-wrap"><table>
