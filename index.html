@@ -776,10 +776,21 @@
         </div>
       </div>
       <div class="form-grid">
-        <div class="form-group"><label>Search</label><input type="text" id="searchSales" placeholder="Pair, patron, phone, tracking..." oninput="renderSales()"></div>
+        <div class="form-group" style="min-width:260px;flex:2;"><label>🔍 Search any shoe, customer, invoice</label><input type="text" id="searchSales" placeholder="e.g. Scarface, Boots, Loafer, Beige Suede, customer name, invoice, phone..." oninput="renderSales()"></div>
+        <div class="form-group"><label>📅 From Date</label><input type="date" id="filterSaleFrom" onchange="renderSales()"></div>
+        <div class="form-group"><label>📅 To Date</label><input type="date" id="filterSaleTo" onchange="renderSales()"></div>
+        <div class="form-group"><label>⚡ Quick Dates</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-xs" onclick="setSaleDateToday()">Today</button>
+            <button class="btn btn-outline btn-xs" onclick="setSaleDateYesterday()">Yesterday</button>
+            <button class="btn btn-outline btn-xs" onclick="setSaleDateThisWeek()">This Week</button>
+            <button class="btn btn-outline btn-xs" onclick="clearSaleDateFilter()">↺ Reset Dates</button>
+          </div>
+        </div>
         <div class="form-group"><label>Filter by Order Type</label><select id="filterOrderType" onchange="renderSales()"><option value="">All</option><option value="offline">🏬 Offline</option><option value="online">📦 Online</option></select></div>
         <div class="form-group"><label>Filter by Status</label><select id="filterSaleStatus" onchange="renderSales()"><option value="">All Status</option><option value="paid">Paid</option><option value="partial">Partial / COD Pending</option><option value="returned">Returned</option></select></div>
       </div>
+      <div id="saleFilteredSummary" style="margin:10px 0;padding:10px 14px;background:#fbf3e3;border:1px dashed #c9a86a;border-radius:6px;font-family:sans-serif;font-size:12px;display:none;"></div>
       <div class="table-wrap"><table>
         <thead><tr>
           <th style="width:30px;"><input type="checkbox" id="saleSelectAll" onchange="toggleSaleSelectAll(this)"></th>
@@ -5155,6 +5166,41 @@ function saveSaleEdit() {
   alert('✦ Sale updated.');
 }
 
+function setSaleDateToday() {
+  const t = todayStr();
+  document.getElementById('filterSaleFrom').value = t;
+  document.getElementById('filterSaleTo').value = t;
+  renderSales();
+}
+function setSaleDateYesterday() {
+  const d = new Date();
+  d.setDate(d.getDate()-1);
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  const s = `${y}-${m}-${day}`;
+  document.getElementById('filterSaleFrom').value = s;
+  document.getElementById('filterSaleTo').value = s;
+  renderSales();
+}
+function setSaleDateThisWeek() {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day + (day===0 ? -6 : 1); // Monday as start
+  const monday = new Date(now.setDate(diff));
+  const y1 = monday.getFullYear(), m1 = String(monday.getMonth()+1).padStart(2,'0'), d1 = String(monday.getDate()).padStart(2,'0');
+  const from = `${y1}-${m1}-${d1}`;
+  const to = todayStr();
+  document.getElementById('filterSaleFrom').value = from;
+  document.getElementById('filterSaleTo').value = to;
+  renderSales();
+}
+function clearSaleDateFilter() {
+  document.getElementById('filterSaleFrom').value = '';
+  document.getElementById('filterSaleTo').value = '';
+  document.getElementById('searchSales').value = '';
+  document.getElementById('filterOrderType').value = '';
+  document.getElementById('filterSaleStatus').value = '';
+  renderSales();
+}
 function renderSales() {
   if (typeof populateSaleProducts === 'function') populateSaleProducts();
   const dateEl = document.getElementById('saleDate');
@@ -5162,16 +5208,65 @@ function renderSales() {
   refreshVendorDropdowns();
   const tbody=document.getElementById('salesTable');
   if (!tbody) return;
-  const search=(document.getElementById('searchSales')?.value||'').toLowerCase();
+  const search=(document.getElementById('searchSales')?.value||'').toLowerCase().trim();
   const typeFilter=document.getElementById('filterOrderType')?.value||'';
   const statusFilter=document.getElementById('filterSaleStatus')?.value||'';
+  const fromDate=document.getElementById('filterSaleFrom')?.value||'';
+  const toDate=document.getElementById('filterSaleTo')?.value||'';
   let sales=db.sales.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
-  if (search) sales = sales.filter(s=>(s.invoiceNo+s.productName+s.customer+(s.phone||'')+s.payment+(s.trackingNo||'')+s.deliveryPartner).toLowerCase().includes(search));
+  // Date filter - individual day or range
+  if (fromDate) sales = sales.filter(s => (s.date||'').slice(0,10) >= fromDate);
+  if (toDate) sales = sales.filter(s => (s.date||'').slice(0,10) <= toDate);
+  // Enhanced search - any shoe name, category, SKU, customer, invoice, phone, etc.
+  if (search) {
+    sales = sales.filter(s=>{
+      const hay = [
+        s.invoiceNo||'',
+        s.productName||'',
+        s.category||'',
+        s.customer||'',
+        s.phone||'',
+        s.payment||'',
+        s.trackingNo||'',
+        s.deliveryPartner||'',
+        s.orderType||'',
+        s.sku||'',
+        // also search product details if linked
+        (function(){
+          const prod = s.productId ? db.products.find(p=>p.id===s.productId) : null;
+          if (!prod) return '';
+          return `${prod.brand||''} ${prod.model||''} ${prod.size||''} ${prod.color||''} ${prod.category||''} ${prod.sku||''}`;
+        })()
+      ].join(' ').toLowerCase();
+      return hay.includes(search);
+    });
+  }
   if (typeFilter) sales = sales.filter(s=>s.orderType===typeFilter || (!s.orderType && typeFilter==='offline'));
   if (statusFilter==='paid') sales = sales.filter(s=>s.returned?false:(s.cod||0)<=0.01);
   if (statusFilter==='partial') sales = sales.filter(s=>!s.returned && s.cod>0.01);
   if (statusFilter==='returned') sales = sales.filter(s=>s.returned);
-  if (!sales.length) { tbody.innerHTML=`<tr><td colspan="13"><div class="empty-state"><div class="icon">📖</div>No transactions match.</div></td></tr>`; updateSaleBulkBar(); return; }
+  // Update filtered summary bar
+  const summaryEl = document.getElementById('saleFilteredSummary');
+  if (summaryEl) {
+    if (fromDate || toDate || search || typeFilter || statusFilter) {
+      const totalQty = sales.filter(s=>!s.returned).reduce((a,b)=>a+b.qty,0);
+      const totalRev = sales.filter(s=>!s.returned).reduce((a,b)=>a+b.total,0);
+      const grossQty = sales.reduce((a,b)=>a+b.qty,0);
+      const grossRev = sales.reduce((a,b)=>a+b.total,0);
+      const dateLabel = fromDate && toDate && fromDate===toDate ? `Day: ${fromDate}` : `${fromDate||'...'} → ${toDate||'...'}`;
+      summaryEl.style.display = 'block';
+      summaryEl.innerHTML = `
+        <strong>📊 Filtered:</strong> ${sales.length} invoices | ${totalQty} pairs (net) / ${grossQty} gross | Net: ${typeof fmt==='function'?fmt(totalRev):'₹'+totalRev} | Gross: ${typeof fmt==='function'?fmt(grossRev):'₹'+grossRev}
+        ${fromDate||toDate ? `| <strong>${dateLabel}</strong>` : ''}
+        ${search ? `| Search: "<em>${esc(search)}</em>"` : ''}
+        <span style="float:right;cursor:pointer;text-decoration:underline;" onclick="clearSaleDateFilter()">Clear all filters</span>
+      `;
+    } else {
+      summaryEl.style.display = 'none';
+    }
+  }
+
+  if (!sales.length) { tbody.innerHTML=`<tr><td colspan="13"><div class="empty-state"><div class="icon">📖</div>No transactions match. Try clearing filters or check another date.</div></td></tr>`; updateSaleBulkBar(); return; }
   tbody.innerHTML = sales.map(s=>{
     const typeBadge = s.orderType==='online' ? '<span class="badge badge-online">📦 Online</span>' : '<span class="badge badge-offline">🏬 Offline</span>';
     let statusBadge;
